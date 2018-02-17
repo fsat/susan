@@ -24,6 +24,8 @@ scalariformPreferences in ThisBuild := scalariformPreferences.value
     .setPreference(AlignSingleLineCaseStatements, true)
     .setPreference(AllowParamGroupsOnNewlines, true)
 
+enablePlugins(AutomateHeaderPlugin)
+
 lazy val susan = project
   .in(file("."))
   .aggregate(
