@@ -83,6 +83,11 @@ object TransactionLock {
   case class LockGetFailure(request: LockGetRequest, cause: Throwable) extends FailureMessage
 
   /**
+   * Sent to the caller which requests the lock when the lock has expired
+   */
+  case class LockExpired(lock: Lock) extends FailureMessage
+
+  /**
    * Request to return a particular transaction lock.
    */
   case class LockReturnRequest(lock: Lock) extends Message
@@ -103,9 +108,14 @@ object TransactionLock {
   case class LockReturnFailure(lock: Lock, cause: Throwable) extends FailureMessage
 
   /**
-   * Represent a pending request for transaction lock
+   * Represents a pending request for transaction lock
    */
   case class PendingRequest(caller: ActorRef, request: LockGetRequest, createdAt: Instant)
+
+  /**
+   * Represents a running request which has had transaction lock assigned.
+   */
+  case class RunningRequest(caller: ActorRef, request: LockGetRequest, createdAt: Instant, lock: Lock)
 }
 
 /**
@@ -131,7 +141,7 @@ class TransactionLock(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: Finite
 
   override def receive: Receive = manageLocks(Seq.empty, Seq.empty)
 
-  private def manageLocks(locks: Seq[Lock], pendingRequests: Seq[PendingRequest]): Receive = {
+  private def manageLocks(runningRequest: Seq[RunningRequest], pendingRequests: Seq[PendingRequest]): Receive = {
     case request @ LockGetRequest(_, _, timeoutObtain, _) if timeoutObtain > maxTimeoutObtain =>
       sender() ! LockGetFailure(request, new IllegalArgumentException(s"The lock obtain timeout of [${timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
 
@@ -139,27 +149,27 @@ class TransactionLock(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: Finite
       sender() ! LockGetFailure(request, new IllegalArgumentException(s"The lock return timeout of [${timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
 
     case request @ LockGetRequest(requestId, records, _, timeoutReturn) =>
-      val existingTransactions = locks.filter(v => records.intersect(v.records).nonEmpty)
+      val existingTransactions = runningRequest.filter(v => records.intersect(v.request.records).nonEmpty)
       if (existingTransactions.isEmpty) {
         val now = Instant.now()
         val lock = Lock(requestId, records, UUID.randomUUID(), createdAt = now, returnDeadline = now.plusNanos(timeoutReturn.toNanos))
 
         sender() ! LockGetSuccess(lock)
 
-        context.become(manageLocks(locks :+ lock, pendingRequests))
+        context.become(manageLocks(runningRequest :+ RunningRequest(sender(), request, now, lock), pendingRequests))
       } else {
-        context.become(manageLocks(locks, pendingRequests :+ PendingRequest(sender(), request, Instant.now())))
+        context.become(manageLocks(runningRequest, pendingRequests :+ PendingRequest(sender(), request, Instant.now())))
       }
 
     case LockReturnRequest(lock) =>
       val now = Instant.now()
       val isLate = now.isAfter(lock.returnDeadline)
 
-      if (locks.contains(lock)) {
+      if (runningRequest.map(_.lock).contains(lock)) {
         val response = if (isLate) LockReturnLate(lock) else LockReturnSuccess(lock)
         sender() ! response
 
-        context.become(manageLocks(locks.filterNot(_ == lock), pendingRequests))
+        context.become(manageLocks(runningRequest.filterNot(_.lock == lock), pendingRequests))
       } else {
         sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
       }
@@ -167,12 +177,16 @@ class TransactionLock(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: Finite
     case Tick =>
       val now = Instant.now()
 
-      def canRemove(lock: Lock): Boolean = {
-        val deadline = lock.returnDeadline.plusNanos(removeStaleLockAfter.toNanos)
+      def canRemove(runningRequest: RunningRequest): Boolean = {
+        val deadline = runningRequest.lock.returnDeadline.plusNanos(removeStaleLockAfter.toNanos)
         now.isAfter(deadline)
       }
 
-      val locksToKeep = locks.filterNot(canRemove)
+      val (runningTimedOut, runningAlive) = runningRequest.span(canRemove)
+
+      runningTimedOut.foreach { v =>
+        v.caller ! LockExpired(v.lock)
+      }
 
       def timedOut(input: PendingRequest): Boolean = {
         val deadline = input.createdAt.plusNanos(input.request.timeoutObtain.toNanos)
@@ -186,15 +200,15 @@ class TransactionLock(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: Finite
       }
 
       def canProcess(input: PendingRequest): Boolean =
-        locksToKeep.flatMap(_.records).intersect(input.request.records).isEmpty
+        runningAlive.flatMap(_.request.records).intersect(input.request.records).isEmpty
 
       pendingAlive.find(canProcess) match {
         case Some(v @ PendingRequest(caller, request, _)) =>
           self.tell(request, sender = caller)
-          context.become(manageLocks(locksToKeep, pendingAlive.filterNot(_ == v)))
+          context.become(manageLocks(runningAlive, pendingAlive.filterNot(_ == v)))
 
         case _ =>
-          context.become(manageLocks(locksToKeep, pendingAlive))
+          context.become(manageLocks(runningAlive, pendingAlive))
       }
 
     // TODO: need to cap the maximum number of transaction locks

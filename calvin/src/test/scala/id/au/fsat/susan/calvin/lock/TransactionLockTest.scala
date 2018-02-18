@@ -1,5 +1,6 @@
 package id.au.fsat.susan.calvin.lock
 
+import java.time.Instant
 import java.util.UUID
 
 import akka.testkit.TestProbe
@@ -271,11 +272,54 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           client2.expectNoMessage(300.millis)
         }
 
-        it("errors when an unknown lock is returned")(pending)
+        it("errors when an unknown lock is returned") {
+          val f = testFixture()
+          import f._
+
+          val requestId = RequestId(UUID.randomUUID())
+          val records = Vector(RecordId(1), RecordId("ant"))
+          val lock = Lock(requestId, records, UUID.randomUUID(), Instant.now(), Instant.now().plusSeconds(10))
+
+          client1.send(transactionLock, LockReturnRequest(lock))
+          inside(client1.expectMsgType[LockReturnFailure]) {
+            case LockReturnFailure(`lock`, error) =>
+              error shouldBe an[IllegalArgumentException]
+          }
+
+          client2.expectNoMessage(300.millis)
+        }
       }
 
       describe("lock expiry") {
-        it("allows obtaining new lock to the same record held by the expired old lock")(pending)
+        it("allows obtaining new lock to the same record held by the expired old lock") {
+          val f = testFixture()
+          import f._
+
+          val requestId1 = RequestId(UUID.randomUUID())
+          val records = Vector(RecordId(1), RecordId("ant"))
+
+          client1.send(transactionLock, LockGetRequest(requestId1, records, timeoutObtain, timeoutReturn))
+          val lock1 = inside(client1.expectMsgType[LockGetSuccess]) {
+            case LockGetSuccess(lock @ Lock(`requestId1`, `records`, _, createdAt, returnDeadline)) =>
+              createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
+              lock
+          }
+
+          val requestId2 = RequestId(UUID.randomUUID())
+          val request2 = LockGetRequest(requestId2, records, 10.millis, timeoutReturn)
+
+          client2.send(transactionLock, request2)
+          client2.expectMsg(LockGetTimeout(request2))
+
+          client1.expectMsg(LockExpired(lock1))
+
+          client2.send(transactionLock, request2)
+          inside(client2.expectMsgType[LockGetSuccess]) {
+            case LockGetSuccess(lock @ Lock(`requestId2`, `records`, _, createdAt, returnDeadline)) =>
+              createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
+              lock
+          }
+        }
       }
     }
   }
