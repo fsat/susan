@@ -11,8 +11,8 @@ import scala.concurrent.duration._
 class TransactionLockTest extends FunSpec with UnitTest with Inside {
   import TransactionLock._
 
-  val maxTimeoutObtain: FiniteDuration = 300.millis
-  val maxTimeoutReturn: FiniteDuration = 500.millis
+  val maxTimeoutObtain: FiniteDuration = 500.millis
+  val maxTimeoutReturn: FiniteDuration = 5000.millis
 
   describe("obtaining transaction lock") {
     describe("successful scenario") {
@@ -27,7 +27,7 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, LockGetRequest(requestId, records, timeoutObtain, timeoutReturn))
           val lock = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId`, `records`, _, createdAt, returnDeadline)) =>
-              (returnDeadline.getNano - createdAt.getNano) shouldBe timeoutReturn.toNanos
+              createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
           }
 
@@ -47,7 +47,7 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, LockGetRequest(requestId, records, timeoutObtain, timeoutReturn))
           val lock = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId`, `records`, _, createdAt, returnDeadline)) =>
-              (returnDeadline.getNano - createdAt.getNano) shouldBe timeoutReturn.toNanos
+              createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
           }
 
@@ -70,7 +70,7 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, LockGetRequest(requestId1, records, timeoutObtain, timeoutReturn))
           val lock1 = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `records`, _, createdAt, returnDeadline)) =>
-              (returnDeadline.getNano - createdAt.getNano) shouldBe timeoutReturn.toNanos
+              createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
           }
 
@@ -84,7 +84,7 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
 
           val lock2 = inside(client2.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `records`, _, createdAt, returnDeadline)) =>
-              (returnDeadline.getNano - createdAt.getNano) shouldBe timeoutReturn.toNanos
+              createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
           }
 
@@ -102,7 +102,7 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, LockGetRequest(requestId1, records, timeoutObtain, timeoutReturn))
           val lock1 = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `records`, _, createdAt, returnDeadline)) =>
-              (returnDeadline.getNano - createdAt.getNano) shouldBe timeoutReturn.toNanos
+              createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
           }
 
@@ -116,7 +116,7 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
 
           val lock2 = inside(client2.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `records`, _, createdAt, returnDeadline)) =>
-              (returnDeadline.getNano - createdAt.getNano) shouldBe timeoutReturn.toNanos
+              createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
           }
 
@@ -134,7 +134,7 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, LockGetRequest(requestId1, records1, timeoutObtain, timeoutReturn))
           val lock1 = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `records1`, _, createdAt, returnDeadline)) =>
-              (returnDeadline.getNano - createdAt.getNano) shouldBe timeoutReturn.toNanos
+              createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
           }
 
@@ -144,7 +144,7 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           client2.send(transactionLock, LockGetRequest(requestId2, records1, timeoutObtain, timeoutReturn))
           val lock2 = inside(client2.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId2`, `records2`, _, createdAt, returnDeadline)) =>
-              (returnDeadline.getNano - createdAt.getNano) shouldBe timeoutReturn.toNanos
+              createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
           }
 
@@ -169,7 +169,7 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, LockGetRequest(requestId1, records, timeoutObtain, timeoutReturn))
           val lock1 = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `records`, _, createdAt, returnDeadline)) =>
-              (returnDeadline.getNano - createdAt.getNano) shouldBe timeoutReturn.toNanos
+              createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
           }
 
@@ -195,7 +195,7 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, LockGetRequest(requestId1, records1, timeoutObtain, timeoutReturn))
           val lock1 = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `records1`, _, createdAt, returnDeadline)) =>
-              (returnDeadline.getNano - createdAt.getNano) shouldBe timeoutReturn.toNanos
+              createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
           }
 
@@ -242,7 +242,7 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, LockGetRequest(requestId, records, timeoutObtain, 0.millis))
           val lock = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId`, `records`, _, createdAt, returnDeadline)) =>
-              (returnDeadline.getNano - createdAt.getNano) shouldBe 0
+              createdAt shouldBe returnDeadline
               lock
           }
 
@@ -268,13 +268,19 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
 
           client2.expectNoMessage(300.millis)
         }
+
+        it("errors when an unknown lock is returned")(pending)
+      }
+
+      describe("lock expiry") {
+        it("allows obtaining new lock to the same record held by the expired old lock")(pending)
       }
     }
   }
 
   private def testFixture(maxTimeoutObtain: FiniteDuration = maxTimeoutObtain, maxTimeoutReturn: FiniteDuration = maxTimeoutReturn) = new {
-    val timeoutObtain = 500.millis
-    val timeoutReturn = 750.millis
+    val timeoutObtain = 300.millis
+    val timeoutReturn = 2000.millis
 
     val transactionLock = actorSystem.actorOf(TransactionLock.props(maxTimeoutObtain, maxTimeoutReturn))
 
