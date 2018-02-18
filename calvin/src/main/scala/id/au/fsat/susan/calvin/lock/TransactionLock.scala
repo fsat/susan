@@ -19,12 +19,16 @@ package id.au.fsat.susan.calvin.lock
 import java.time.LocalDateTime
 import java.util.UUID
 
-import akka.actor.{ Actor, ActorLogging }
+import akka.actor.{ Actor, ActorLogging, Props }
 import id.au.fsat.susan.calvin.RecordId
 
+import scala.collection.immutable.Seq
 import scala.concurrent.duration.FiniteDuration
 
 object TransactionLock {
+
+  def props(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: FiniteDuration): Props =
+    Props(new TransactionLock(maxTimeoutObtain, maxTimeoutReturn))
 
   /**
    * All messages to [[TransactionLock]] actor must extends this trait.
@@ -34,7 +38,7 @@ object TransactionLock {
   /**
    * All messages indicating failure must extends this trait.
    */
-  sealed trait FailureMessage extends Message
+  sealed trait FailureMessage extends Exception with Message
 
   /**
    * Id for a particular lock request.
@@ -44,12 +48,12 @@ object TransactionLock {
   /**
    * The transaction lock for a particular record.
    */
-  case class Lock(requestId: RequestId, recordId: RecordId, lockId: UUID, createdAt: LocalDateTime, returnDeadline: LocalDateTime)
+  case class Lock(requestId: RequestId, records: Seq[RecordId], lockId: UUID, createdAt: LocalDateTime, returnDeadline: LocalDateTime)
 
   /**
    * Request to obtain a particular transaction lock.
    */
-  case class LockGetRequest(requestId: RequestId, recordId: RecordId, timeoutObtain: FiniteDuration, timeoutReturn: FiniteDuration) extends Message
+  case class LockGetRequest(requestId: RequestId, records: Seq[RecordId], timeoutObtain: FiniteDuration, timeoutReturn: FiniteDuration) extends Message
 
   /**
    * The reply if the lock is successfully obtained.
@@ -77,9 +81,9 @@ object TransactionLock {
   case class LockReturnSuccess(lock: Lock) extends Message
 
   /**
-   * The reply if there's an exception obtaining the lock.
+   * The reply if the lock is returned past it's return deadline.
    */
-  case class LockReturnFailure(lock: Lock, cause: Throwable) extends FailureMessage
+  case class LockReturnLate(lock: Lock) extends FailureMessage
 }
 
 /**

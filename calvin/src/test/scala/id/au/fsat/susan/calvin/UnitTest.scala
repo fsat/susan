@@ -1,8 +1,8 @@
 package id.au.fsat.susan.calvin
 
 import akka.actor.ActorSystem
-import akka.stream.{ActorMaterializer, Materializer}
-import org.scalatest.{BeforeAndAfterAll, Matchers, Suite}
+import akka.stream.{ ActorMaterializer, Materializer }
+import org.scalatest.{ BeforeAndAfterAll, Matchers, Suite }
 
 import scala.concurrent.Await
 import scala.concurrent.duration._

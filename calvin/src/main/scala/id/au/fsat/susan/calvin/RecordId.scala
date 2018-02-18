@@ -16,6 +16,8 @@
 
 package id.au.fsat.susan.calvin
 
+import java.io.Serializable
+
 /**
  * Represents the id of a particular record in the storage.
  */
