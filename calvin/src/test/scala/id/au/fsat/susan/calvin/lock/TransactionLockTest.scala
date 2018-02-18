@@ -11,8 +11,10 @@ import scala.concurrent.duration._
 class TransactionLockTest extends FunSpec with UnitTest with Inside {
   import TransactionLock._
 
-  val maxTimeoutObtain: FiniteDuration = 500.millis
-  val maxTimeoutReturn: FiniteDuration = 5000.millis
+  val maxTimeoutObtain = 500.millis
+  val maxTimeoutReturn = 5000.millis
+  val removeStaleLocksAfter = 1000.millis
+  val checkInterval = 100.millis
 
   describe("obtaining transaction lock") {
     describe("successful scenario") {
@@ -77,13 +79,13 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           val requestId2 = RequestId(UUID.randomUUID())
 
           client2.send(transactionLock, LockGetRequest(requestId2, records, timeoutObtain, timeoutReturn))
-          client2.expectNoMessage(timeoutReturn / 2)
+          client2.expectNoMessage(timeoutObtain / 2)
 
           client1.send(transactionLock, LockReturnRequest(lock1))
           client1.expectMsg(LockReturnSuccess(lock1))
 
           val lock2 = inside(client2.expectMsgType[LockGetSuccess]) {
-            case LockGetSuccess(lock @ Lock(`requestId1`, `records`, _, createdAt, returnDeadline)) =>
+            case LockGetSuccess(lock @ Lock(`requestId2`, `records`, _, createdAt, returnDeadline)) =>
               createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
           }
@@ -109,13 +111,13 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           val requestId2 = RequestId(UUID.randomUUID())
 
           client2.send(transactionLock, LockGetRequest(requestId2, records, timeoutObtain, timeoutReturn))
-          client2.expectNoMessage(timeoutReturn / 2)
+          client2.expectNoMessage(timeoutObtain / 2)
 
           client1.send(transactionLock, LockReturnRequest(lock1))
           client1.expectMsg(LockReturnSuccess(lock1))
 
           val lock2 = inside(client2.expectMsgType[LockGetSuccess]) {
-            case LockGetSuccess(lock @ Lock(`requestId1`, `records`, _, createdAt, returnDeadline)) =>
+            case LockGetSuccess(lock @ Lock(`requestId2`, `records`, _, createdAt, returnDeadline)) =>
               createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
           }
@@ -141,7 +143,7 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           val requestId2 = RequestId(UUID.randomUUID())
           val records2 = Vector(RecordId(10), RecordId("jim"))
 
-          client2.send(transactionLock, LockGetRequest(requestId2, records1, timeoutObtain, timeoutReturn))
+          client2.send(transactionLock, LockGetRequest(requestId2, records2, timeoutObtain, timeoutReturn))
           val lock2 = inside(client2.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId2`, `records2`, _, createdAt, returnDeadline)) =>
               createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
@@ -174,7 +176,7 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
           }
 
           val requestId2 = RequestId(UUID.randomUUID())
-          val request2 = LockGetRequest(requestId2, records, timeoutObtain, timeoutReturn)
+          val request2 = LockGetRequest(requestId2, records, 10.millis, timeoutReturn)
 
           client2.send(transactionLock, request2)
           client2.expectMsg(LockGetTimeout(request2))
@@ -278,11 +280,12 @@ class TransactionLockTest extends FunSpec with UnitTest with Inside {
     }
   }
 
-  private def testFixture(maxTimeoutObtain: FiniteDuration = maxTimeoutObtain, maxTimeoutReturn: FiniteDuration = maxTimeoutReturn) = new {
+  private def testFixture(maxTimeoutObtain: FiniteDuration = maxTimeoutObtain, maxTimeoutReturn: FiniteDuration = maxTimeoutReturn,
+    removeStaleLocksAfter: FiniteDuration = removeStaleLocksAfter, checkInterval: FiniteDuration = checkInterval) = new {
     val timeoutObtain = 300.millis
     val timeoutReturn = 2000.millis
 
-    val transactionLock = actorSystem.actorOf(TransactionLock.props(maxTimeoutObtain, maxTimeoutReturn))
+    val transactionLock = actorSystem.actorOf(TransactionLock.props(maxTimeoutObtain, maxTimeoutReturn, removeStaleLocksAfter, checkInterval))
 
     val client1 = TestProbe()
     val client2 = TestProbe()
