@@ -25,13 +25,13 @@ import id.au.fsat.susan.calvin.RecordId
 import scala.collection.immutable.{ Seq, Set }
 import scala.concurrent.duration._
 
-object TransactionLock {
+object TransactionLocks {
 
   def props(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: FiniteDuration, removeStaleLockAfter: FiniteDuration, checkInterval: FiniteDuration): Props =
-    Props(new TransactionLock(maxTimeoutObtain, maxTimeoutReturn, removeStaleLockAfter, checkInterval))
+    Props(new TransactionLocks(maxTimeoutObtain, maxTimeoutReturn, removeStaleLockAfter, checkInterval))
 
   /**
-   * All messages to [[TransactionLock]] actor must extends this trait.
+   * All messages to [[TransactionLocks]] actor must extends this trait.
    */
   sealed trait Message
 
@@ -121,7 +121,7 @@ object TransactionLock {
 /**
  * Responsible for transaction lock for a particular record.
  *
- * Before calling one or more operations to modify a certain record, the caller *MUST* call the [[TransactionLock]] to
+ * Before calling one or more operations to modify a certain record, the caller *MUST* call the [[TransactionLocks]] to
  * obtain the lock associated to the entity to be modified.
  *
  * @param maxTimeoutObtain the maximum duration allowable waiting for a lock to be available
@@ -130,8 +130,8 @@ object TransactionLock {
  * @param removeStaleLockAfter the duration where stale locks will be removed.
  * @param checkInterval the internal polling period to for removal of stale locks and processing of pending requests
  */
-class TransactionLock(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: FiniteDuration, removeStaleLockAfter: FiniteDuration, checkInterval: FiniteDuration) extends Actor with ActorLogging {
-  import TransactionLock._
+class TransactionLocks(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: FiniteDuration, removeStaleLockAfter: FiniteDuration, checkInterval: FiniteDuration) extends Actor with ActorLogging {
+  import TransactionLocks._
 
   import context.dispatcher
 
