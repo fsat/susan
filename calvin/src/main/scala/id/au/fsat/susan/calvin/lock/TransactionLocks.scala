@@ -60,12 +60,12 @@ object TransactionLocks {
   /**
    * The transaction lock for a particular record.
    */
-  case class Lock(requestId: RequestId, records: Seq[RecordId], lockId: UUID, createdAt: Instant, returnDeadline: Instant)
+  case class Lock(requestId: RequestId, recordId: RecordId, lockId: UUID, createdAt: Instant, returnDeadline: Instant)
 
   /**
    * Request to obtain a particular transaction lock.
    */
-  case class LockGetRequest(requestId: RequestId, records: Seq[RecordId], timeoutObtain: FiniteDuration, timeoutReturn: FiniteDuration) extends Message
+  case class LockGetRequest(requestId: RequestId, recordId: RecordId, timeoutObtain: FiniteDuration, timeoutReturn: FiniteDuration) extends Message
 
   /**
    * The reply if the lock is successfully obtained.
@@ -148,11 +148,11 @@ class TransactionLocks(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: Finit
     case request @ LockGetRequest(_, _, _, timeoutReturn) if timeoutReturn > maxTimeoutReturn =>
       sender() ! LockGetFailure(request, new IllegalArgumentException(s"The lock return timeout of [${timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
 
-    case request @ LockGetRequest(requestId, records, _, timeoutReturn) =>
-      val existingTransactions = runningRequest.filter(v => records.intersect(v.request.records).nonEmpty)
+    case request @ LockGetRequest(requestId, recordId, _, timeoutReturn) =>
+      val existingTransactions = runningRequest.filter(_.request.recordId == recordId)
       if (existingTransactions.isEmpty) {
         val now = Instant.now()
-        val lock = Lock(requestId, records, UUID.randomUUID(), createdAt = now, returnDeadline = now.plusNanos(timeoutReturn.toNanos))
+        val lock = Lock(requestId, recordId, UUID.randomUUID(), createdAt = now, returnDeadline = now.plusNanos(timeoutReturn.toNanos))
 
         sender() ! LockGetSuccess(lock)
 
@@ -165,7 +165,7 @@ class TransactionLocks(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: Finit
       val now = Instant.now()
       val isLate = now.isAfter(lock.returnDeadline)
 
-      if (runningRequest.map(_.lock).contains(lock)) {
+      if (runningRequest.exists(_.lock == lock)) {
         val response = if (isLate) LockReturnLate(lock) else LockReturnSuccess(lock)
         sender() ! response
 
@@ -200,7 +200,7 @@ class TransactionLocks(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: Finit
       }
 
       def canProcess(input: PendingRequest): Boolean =
-        runningAlive.flatMap(_.request.records).intersect(input.request.records).isEmpty
+        !runningAlive.exists(_.request.recordId == input.request.recordId)
 
       pendingAlive.find(canProcess) match {
         case Some(v @ PendingRequest(caller, request, _)) =>
