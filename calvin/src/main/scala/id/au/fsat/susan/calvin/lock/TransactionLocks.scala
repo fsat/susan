@@ -22,13 +22,13 @@ import java.util.UUID
 import akka.actor.{ Actor, ActorLogging, ActorRef, Props }
 import id.au.fsat.susan.calvin.RecordId
 
-import scala.collection.immutable.{ Seq, Set }
+import scala.collection.immutable.Seq
 import scala.concurrent.duration._
 
 object TransactionLocks {
 
-  def props(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: FiniteDuration, removeStaleLockAfter: FiniteDuration, checkInterval: FiniteDuration): Props =
-    Props(new TransactionLocks(maxTimeoutObtain, maxTimeoutReturn, removeStaleLockAfter, checkInterval))
+  def props(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: FiniteDuration, removeStaleLockAfter: FiniteDuration, checkInterval: FiniteDuration, maxPendingRequests: Int): Props =
+    Props(new TransactionLocks(maxTimeoutObtain, maxTimeoutReturn, removeStaleLockAfter, checkInterval, maxPendingRequests))
 
   /**
    * All messages to [[TransactionLocks]] actor must extends this trait.
@@ -76,6 +76,11 @@ object TransactionLocks {
    * The reply if the lock can't be obtained within the timeout specified by [[LockGetRequest]].
    */
   case class LockGetTimeout(request: LockGetRequest) extends FailureMessage
+
+  /**
+   * The reply if the max allowable lock request is exceeded.
+   */
+  case class LockGetRequestDropped(request: LockGetRequest) extends FailureMessage
 
   /**
    * The reply if there's an exception obtaining the lock.
@@ -130,7 +135,7 @@ object TransactionLocks {
  * @param removeStaleLockAfter the duration where stale locks will be removed.
  * @param checkInterval the internal polling period to for removal of stale locks and processing of pending requests
  */
-class TransactionLocks(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: FiniteDuration, removeStaleLockAfter: FiniteDuration, checkInterval: FiniteDuration) extends Actor with ActorLogging {
+class TransactionLocks(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: FiniteDuration, removeStaleLockAfter: FiniteDuration, checkInterval: FiniteDuration, maxPendingRequests: Int) extends Actor with ActorLogging {
   import TransactionLocks._
 
   import context.dispatcher
@@ -157,7 +162,7 @@ class TransactionLocks(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: Finit
         sender() ! LockGetSuccess(lock)
 
         context.become(manageLocks(runningRequest :+ RunningRequest(sender(), request, now, lock), pendingRequests))
-      } else {
+      } else if (!pendingRequests.exists(_.request.requestId == requestId)) {
         context.become(manageLocks(runningRequest, pendingRequests :+ PendingRequest(sender(), request, Instant.now())))
       }
 
@@ -202,13 +207,21 @@ class TransactionLocks(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: Finit
       def canProcess(input: PendingRequest): Boolean =
         !runningAlive.exists(_.request.recordId == input.request.recordId)
 
-      pendingAlive.find(canProcess) match {
+      val pendingAliveSorted = pendingAlive.sortBy(_.createdAt)
+      val pendingAliveKept = pendingAliveSorted.take(maxPendingRequests)
+      val pendingAliveDropped = pendingAliveSorted.takeRight(pendingAliveSorted.length - maxPendingRequests)
+
+      pendingAliveDropped.foreach { v =>
+        v.caller ! LockGetRequestDropped(v.request)
+      }
+
+      pendingAliveKept.find(canProcess) match {
         case Some(v @ PendingRequest(caller, request, _)) =>
           self.tell(request, sender = caller)
-          context.become(manageLocks(runningAlive, pendingAlive.filterNot(_ == v)))
+          context.become(manageLocks(runningAlive, pendingAliveKept.filterNot(_ == v)))
 
         case _ =>
-          context.become(manageLocks(runningAlive, pendingAlive))
+          context.become(manageLocks(runningAlive, pendingAliveKept))
       }
 
     // TODO: need to cap the maximum number of transaction locks
