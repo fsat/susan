@@ -2,6 +2,7 @@ package id.au.fsat.susan.calvin.lock
 
 import java.util.UUID
 
+import akka.cluster.MemberStatus
 import akka.testkit.TestProbe
 import id.au.fsat.susan.calvin.{ ClusteredTest, RecordId }
 import id.au.fsat.susan.calvin.ClusteredTest.ClusteredSetup
@@ -14,8 +15,8 @@ import scala.concurrent.duration._
 
 object TransactionLocksClusterShardingTest {
   val recordIdValueToString: RecordIdToEntityId = _.value.toString
-  val shardFromRecord: RecordIdToShardId = x => y => (y.value.hashCode() % x).toString
-  val shardFromEntityId: ShardEntityIdToShardId = x => y => (y.hashCode() % x).toString
+  val shardFromRecord: RecordIdToShardId = _ => y => y.value.toString
+  val shardFromEntityId: ShardEntityIdToShardId = _ => y => y.toString
 }
 
 class TransactionLocksClusterShardingTest extends FunSpec with ClusteredTest with Inside {
@@ -152,9 +153,17 @@ class TransactionLocksClusterShardingTest extends FunSpec with ClusteredTest wit
 
         // Crash the first actor system, (hopefully) taking down the shard on the first node
         Await.result(cluster.nodes.head._1.terminate(), Duration.Inf)
+        // Down the first actor from other 2 nodes
+        cluster.nodes.tail.foreach(_._2.down(cluster.nodes.head._2.selfUniqueAddress.address))
 
         client2.send(txLock2, LockReturnRequest(lock2))
         client2.expectMsg(LockReturnSuccess(lock2))
+
+        cluster.nodes.tail.foreach { v =>
+          TestProbe()(v._1).awaitAssert({
+            v._2.state.members.count(_.status == MemberStatus.Up) shouldBe 2
+          }, 10.seconds, 500.millis)
+        }
 
         client3.send(txLock3, LockReturnRequest(lock1))
         client3.expectMsg(LockReturnSuccess(lock1))
@@ -182,8 +191,8 @@ class TransactionLocksClusterShardingTest extends FunSpec with ClusteredTest wit
     entityIdToShardId: ShardEntityIdToShardId = shardFromEntityId)(implicit clusteredSetup: ClusteredSetup) = new {
 
     implicit val txLockSettings = TransactionLockSettings(
-      maxTimeoutObtain = 2000.millis,
-      maxTimeoutReturn = 10000.millis,
+      maxTimeoutObtain = 10000.millis,
+      maxTimeoutReturn = 30000.millis,
       removeStaleLockAfter = 500.millis,
       checkInterval = 100.millis,
       maxPendingRequests = 3)

@@ -1,7 +1,10 @@
 package id.au.fsat.susan.calvin.lock
 
-import akka.actor.{ Actor, ActorLogging, ActorRef, ActorSystem, Props }
+import akka.actor.{ ActorLogging, ActorRef, ActorSystem, Props }
+import akka.cluster.Cluster
 import akka.cluster.sharding.{ ClusterSharding, ClusterShardingSettings, ShardRegion }
+import akka.persistence.{ PersistentActor, SnapshotOffer }
+import id.au.fsat.susan.calvin.lock.TransactionLocksClusterSharding.ReceivedMessage
 
 object TransactionLocksClusterSharding {
   val name = "transaction-locks-cluster-sharding"
@@ -28,13 +31,27 @@ object TransactionLocksClusterSharding {
 
   private def props()(implicit s: TransactionLockSettings): Props =
     Props(new TransactionLocksClusterSharding())
+
+  case class ReceivedMessage(sender: ActorRef, request: TransactionLocks.RequestMessage)
 }
 
-class TransactionLocksClusterSharding(implicit s: TransactionLockSettings) extends Actor with ActorLogging {
+class TransactionLocksClusterSharding(implicit s: TransactionLockSettings) extends PersistentActor with ActorLogging {
   val transactionLock: ActorRef = context.watch(context.actorOf(TransactionLocks.props(), TransactionLocks.name))
 
-  override def receive: Receive = {
-    case v: TransactionLocks.RequestMessage =>
-      transactionLock.forward(v)
+  println(s"\n\nTransactionLocksClusterSharding is started on ${Cluster(context.system).selfUniqueAddress}")
+
+  override def receiveRecover: Receive = {
+    case v: ReceivedMessage =>
+      println(s"\n\n${self} RECEIVE RECOVER ${v}")
+    case v: SnapshotOffer =>
+      println(s"\n\n${self} SNAPSHOT OFFER ${v}")
   }
+
+  override def receiveCommand: Receive = {
+    case v: TransactionLocks.RequestMessage =>
+      println(s"\n\n${self} RECEIVE ${v}")
+      persist(ReceivedMessage(sender(), v))(r => transactionLock.tell(r.request, r.sender))
+  }
+
+  override def persistenceId: String = TransactionLocksClusterSharding.name
 }

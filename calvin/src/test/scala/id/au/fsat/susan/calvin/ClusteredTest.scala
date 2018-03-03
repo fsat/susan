@@ -73,11 +73,26 @@ trait ClusteredTest extends Matchers {
          |  }
          |  cluster {
          |      sharding.state-store-mode = ddata
+         |      remember-entities = on
+         |      auto-down-unreachable-after = off
+         |      down-removal-margin = 200ms
+         |      failure-detector {
+         |        heartbeat-interval = 100ms
+         |        acceptable-heartbeat-pause = 500ms
+         |      }
          |  }
          |  remote {
          |    netty.tcp {
          |      hostname = "127.0.0.1"
          |      port = 0
+         |    }
+         |  }
+         |  persistence {
+         |    journal {
+         |      plugin = "akka.persistence.journal.inmem"
+         |    }
+         |    snapshot-store {
+         |      plugin = "akka.persistence.snapshot-store.local"
          |    }
          |  }
          |}
