@@ -26,6 +26,7 @@ import scala.collection.immutable.Seq
 import scala.concurrent.duration._
 
 object TransactionLocks {
+  val name = "transaction-locks"
 
   def props()(implicit transactionLockSettings: TransactionLockSettings): Props =
     Props(new TransactionLocks())
