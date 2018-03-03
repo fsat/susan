@@ -18,26 +18,20 @@ object TransactionLocksClusterSharding {
   }
 
   def create(system: ActorSystem)(implicit shardingSettings: TransactionLockClusterShardingSettings, s: TransactionLockSettings): ActorRef =
-    create(system, customTransactionLocks = None)
-
-  protected[susan] def create(system: ActorSystem, customTransactionLocks: Option[ActorRef])(implicit shardingSettings: TransactionLockClusterShardingSettings, s: TransactionLockSettings): ActorRef =
     ClusterSharding(system)
       .start(
         typeName = "TransactionLocksClusterSharding",
-        entityProps = props(customTransactionLocks),
+        entityProps = props(),
         settings = ClusterShardingSettings(system),
         extractEntityId = createExtractEntityId(),
         extractShardId = createExtractShardId())
 
-  private def props(customTransactionLocks: Option[ActorRef] = None)(implicit s: TransactionLockSettings): Props =
-    Props(new TransactionLocksClusterSharding(customTransactionLocks))
+  private def props()(implicit s: TransactionLockSettings): Props =
+    Props(new TransactionLocksClusterSharding())
 }
 
-class TransactionLocksClusterSharding(customTransactionLocks: Option[ActorRef])(implicit s: TransactionLockSettings) extends PersistentActor with ActorLogging {
-  val transactionLock: ActorRef = context.watch(
-    customTransactionLocks.getOrElse {
-      context.actorOf(TransactionLocks.props(), TransactionLocks.name)
-    })
+class TransactionLocksClusterSharding(implicit s: TransactionLockSettings) extends PersistentActor with ActorLogging {
+  val transactionLock: ActorRef = context.watch(context.actorOf(TransactionLocks.props(), TransactionLocks.name))
 
   override def receiveRecover: Receive = ???
   override def receiveCommand: Receive = ???
