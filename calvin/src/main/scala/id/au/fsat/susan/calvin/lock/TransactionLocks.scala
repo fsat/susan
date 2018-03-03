@@ -229,7 +229,5 @@ class TransactionLocks()(implicit transactionLockSettings: TransactionLockSettin
         case _ =>
           context.become(manageLocks(runningAlive, pendingAliveKept))
       }
-
-    // TODO: need to cap the maximum number of transaction locks
   }
 }
