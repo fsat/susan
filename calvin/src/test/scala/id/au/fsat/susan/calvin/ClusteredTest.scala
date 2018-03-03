@@ -1,28 +1,33 @@
 package id.au.fsat.susan.calvin
 
 import akka.actor.{ ActorSystem, Address }
-import akka.cluster.{ Cluster, ClusterEvent }
 import akka.cluster.ClusterEvent.MemberUp
+import akka.cluster.{ Cluster, ClusterEvent, MemberStatus }
 import akka.testkit.TestProbe
 import com.typesafe.config.{ Config, ConfigFactory }
-import org.scalatest.{ BeforeAndAfterAll, Matchers, Suite }
+import id.au.fsat.susan.calvin.ClusteredTest.ClusteredSetup
+import org.scalatest.{ Matchers, Suite }
 
+import scala.collection.immutable.Seq
 import scala.concurrent.Await
 import scala.concurrent.duration.Duration
-import scala.collection.immutable.Seq
+import scala.util.Try
 
-trait ClusteredTest extends BeforeAndAfterAll with Matchers {
+object ClusteredTest {
+  case class ClusteredSetup(nodes: Seq[(ActorSystem, Cluster)])
+}
+
+trait ClusteredTest extends Matchers {
   this: Suite =>
 
-  def numberOfNodes: Int = 3
+  def withCluster[T](numberOfNodes: Int = 3, config: Config = createConfig())(callback: ClusteredSetup => T): T = {
+    val nodes = (0 until numberOfNodes).map { _ =>
+      val actorSystem = ActorSystem(this.getClass.getSimpleName, createConfig())
+      actorSystem -> Cluster(actorSystem)
+    }
 
-  val nodes = (0 to numberOfNodes).map(_ => ActorSystem(this.getClass.getSimpleName, createConfig()))
-  val clusters = nodes.map(Cluster(_))
+    val (seedNode, seedNodeCluster) = nodes.head
 
-  val seedNode = nodes.head
-  val seedNodeCluster = clusters.head
-
-  override protected def beforeAll(): Unit = {
     def nodeAddress(input: Cluster): Address = input.selfUniqueAddress.address
 
     val clusterListener = TestProbe()(seedNode)
@@ -30,6 +35,7 @@ trait ClusteredTest extends BeforeAndAfterAll with Matchers {
 
     seedNodeCluster.joinSeedNodes(Seq(nodeAddress(seedNodeCluster)))
 
+    val clusters = nodes.map(_._2)
     val (joinInfo, _) = clusters.tail.foldLeft((Seq.empty[(Cluster, Seq[Cluster])], Seq(seedNodeCluster))) { (result, entry) =>
       val (joinInfo, previousNodes) = result
       (joinInfo :+ (entry -> previousNodes), previousNodes :+ entry)
@@ -40,29 +46,33 @@ trait ClusteredTest extends BeforeAndAfterAll with Matchers {
       cluster.joinSeedNodes(otherMembers.map(nodeAddress))
     }
 
-    val clusterAddresses = clusters.map(nodeAddress)
-    def isPartOfCluster(memberUp: MemberUp): Boolean =
-      clusterAddresses.contains(memberUp.member.uniqueAddress.address)
-
-    (0 to numberOfNodes).foreach { _ =>
-      isPartOfCluster(clusterListener.expectMsgType[MemberUp]) shouldBe true
+    clusters.foreach { c =>
+      TestProbe()(c.system).awaitAssert {
+        c.state.members.count(_.status == MemberStatus.Up) shouldBe numberOfNodes
+      }
     }
-  }
 
-  override def afterAll(): Unit = {
-    nodes.foreach { node =>
-      Await.ready(node.terminate(), Duration.Inf)
+    val result = Try(callback(ClusteredSetup(nodes)))
+
+    nodes.foreach { v =>
+      val (actorSystem, _) = v
+      Await.result(actorSystem.terminate(), Duration.Inf)
     }
+
+    result.get
   }
 
   protected def createConfig(): Config = createRemotingConfig()
 
-  protected def createRemotingConfig(): Config =
+  protected def createRemotingConfig(): Config = {
     ConfigFactory.parseString(
       s"""
          |akka {
          |  actor {
-         |    provider = "cluster"
+         |    provider = "akka.cluster.ClusterActorRefProvider"
+         |  }
+         |  cluster {
+         |      sharding.state-store-mode = ddata
          |  }
          |  remote {
          |    netty.tcp {
@@ -74,4 +84,5 @@ trait ClusteredTest extends BeforeAndAfterAll with Matchers {
          |
          |akka.cluster.jmx.multi-mbeans-in-same-jvm = on
        """.stripMargin)
+  }
 }

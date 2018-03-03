@@ -20,7 +20,7 @@ import java.time.Instant
 import java.util.UUID
 
 import akka.actor.{ Actor, ActorLogging, ActorRef, Props }
-import id.au.fsat.susan.calvin.RecordId
+import id.au.fsat.susan.calvin.{ RecordId, RemoteMessage }
 
 import scala.collection.immutable.Seq
 import scala.concurrent.duration._
@@ -35,6 +35,16 @@ object TransactionLocks {
    * All messages to [[TransactionLocks]] actor must extends this trait.
    */
   sealed trait Message
+
+  /**
+   * All input messages to [[TransactionLocks]] actor must extends this trait.
+   */
+  sealed trait RequestMessage extends RemoteMessage
+
+  /**
+   * All response messages from [[TransactionLocks]] actor must extends this trait.
+   */
+  sealed trait ResponseMessage extends RemoteMessage
 
   /**
    * All self message must extends this trait.
@@ -66,52 +76,52 @@ object TransactionLocks {
   /**
    * Request to obtain a particular transaction lock.
    */
-  case class LockGetRequest(requestId: RequestId, recordId: RecordId, timeoutObtain: FiniteDuration, timeoutReturn: FiniteDuration) extends Message
+  case class LockGetRequest(requestId: RequestId, recordId: RecordId, timeoutObtain: FiniteDuration, timeoutReturn: FiniteDuration) extends RequestMessage
 
   /**
    * The reply if the lock is successfully obtained.
    */
-  case class LockGetSuccess(lock: Lock) extends Message
+  case class LockGetSuccess(lock: Lock) extends Message with ResponseMessage
 
   /**
    * The reply if the lock can't be obtained within the timeout specified by [[LockGetRequest]].
    */
-  case class LockGetTimeout(request: LockGetRequest) extends FailureMessage
+  case class LockGetTimeout(request: LockGetRequest) extends FailureMessage with ResponseMessage
 
   /**
    * The reply if the max allowable lock request is exceeded.
    */
-  case class LockGetRequestDropped(request: LockGetRequest) extends FailureMessage
+  case class LockGetRequestDropped(request: LockGetRequest) extends FailureMessage with ResponseMessage
 
   /**
    * The reply if there's an exception obtaining the lock.
    */
-  case class LockGetFailure(request: LockGetRequest, cause: Throwable) extends FailureMessage
+  case class LockGetFailure(request: LockGetRequest, cause: Throwable) extends FailureMessage with ResponseMessage
 
   /**
    * Sent to the caller which requests the lock when the lock has expired
    */
-  case class LockExpired(lock: Lock) extends FailureMessage
+  case class LockExpired(lock: Lock) extends FailureMessage with ResponseMessage
 
   /**
    * Request to return a particular transaction lock.
    */
-  case class LockReturnRequest(lock: Lock) extends Message
+  case class LockReturnRequest(lock: Lock) extends RequestMessage
 
   /**
    * The reply if the lock is successfully returned.
    */
-  case class LockReturnSuccess(lock: Lock) extends Message
+  case class LockReturnSuccess(lock: Lock) extends ResponseMessage
 
   /**
    * The reply if the lock is returned past it's return deadline.
    */
-  case class LockReturnLate(lock: Lock) extends FailureMessage
+  case class LockReturnLate(lock: Lock) extends FailureMessage with ResponseMessage
 
   /**
    * The reply if there's an exception obtaining the lock.
    */
-  case class LockReturnFailure(lock: Lock, cause: Throwable) extends FailureMessage
+  case class LockReturnFailure(lock: Lock, cause: Throwable) extends FailureMessage with ResponseMessage
 
   /**
    * Represents a pending request for transaction lock
