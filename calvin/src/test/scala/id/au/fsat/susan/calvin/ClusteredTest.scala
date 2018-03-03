@@ -14,37 +14,45 @@ import scala.collection.immutable.Seq
 trait ClusteredTest extends BeforeAndAfterAll with Matchers {
   this: Suite =>
 
-  val node1: ActorSystem = ActorSystem(this.getClass.getSimpleName, createConfig())
-  val node2: ActorSystem = ActorSystem(this.getClass.getSimpleName, createConfig())
-  val node3: ActorSystem = ActorSystem(this.getClass.getSimpleName, createConfig())
+  def numberOfNodes: Int = 3
 
-  val node1Cluster = Cluster(node1)
-  val node2Cluster = Cluster(node2)
-  val node3Cluster = Cluster(node3)
+  val nodes = (0 to numberOfNodes).map(_ => ActorSystem(this.getClass.getSimpleName, createConfig()))
+  val clusters = nodes.map(Cluster(_))
+
+  val seedNode = nodes.head
+  val seedNodeCluster = clusters.head
 
   override protected def beforeAll(): Unit = {
-    def nodeAddresses(input: Cluster*): Seq[Address] = input.toList.map(_.selfUniqueAddress.address)
+    def nodeAddress(input: Cluster): Address = input.selfUniqueAddress.address
 
-    val clusterListener = TestProbe()(node1)
-    node1Cluster.subscribe(clusterListener.ref, ClusterEvent.InitialStateAsEvents, classOf[MemberUp])
+    val clusterListener = TestProbe()(seedNode)
+    seedNodeCluster.subscribe(clusterListener.ref, ClusterEvent.InitialStateAsEvents, classOf[MemberUp])
 
-    node1Cluster.joinSeedNodes(nodeAddresses(node1Cluster))
-    node2Cluster.joinSeedNodes(nodeAddresses(node1Cluster))
-    node3Cluster.joinSeedNodes(nodeAddresses(node1Cluster, node2Cluster))
+    seedNodeCluster.joinSeedNodes(Seq(nodeAddress(seedNodeCluster)))
 
-    val clusterAddresses = nodeAddresses(node1Cluster, node2Cluster, node3Cluster)
+    val (joinInfo, _) = clusters.tail.foldLeft((Seq.empty[(Cluster, Seq[Cluster])], Seq(seedNodeCluster))) { (result, entry) =>
+      val (joinInfo, previousNodes) = result
+      (joinInfo :+ (entry -> previousNodes), previousNodes :+ entry)
+    }
+
+    joinInfo.foreach { v =>
+      val (cluster, otherMembers) = v
+      cluster.joinSeedNodes(otherMembers.map(nodeAddress))
+    }
+
+    val clusterAddresses = clusters.map(nodeAddress)
     def isPartOfCluster(memberUp: MemberUp): Boolean =
       clusterAddresses.contains(memberUp.member.uniqueAddress.address)
 
-    isPartOfCluster(clusterListener.expectMsgType[MemberUp]) shouldBe true
-    isPartOfCluster(clusterListener.expectMsgType[MemberUp]) shouldBe true
-    isPartOfCluster(clusterListener.expectMsgType[MemberUp]) shouldBe true
+    (0 to numberOfNodes).foreach { _ =>
+      isPartOfCluster(clusterListener.expectMsgType[MemberUp]) shouldBe true
+    }
   }
 
   override def afterAll(): Unit = {
-    Await.ready(node1.terminate(), Duration.Inf)
-    Await.ready(node2.terminate(), Duration.Inf)
-    Await.ready(node3.terminate(), Duration.Inf)
+    nodes.foreach { node =>
+      Await.ready(node.terminate(), Duration.Inf)
+    }
   }
 
   protected def createConfig(): Config = createRemotingConfig()
