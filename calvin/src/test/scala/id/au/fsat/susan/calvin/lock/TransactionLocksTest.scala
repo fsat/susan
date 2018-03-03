@@ -309,7 +309,8 @@ class TransactionLocksTest extends FunSpec with UnitTest with Inside {
     val timeoutObtain = 300.millis
     val timeoutReturn = 2000.millis
 
-    val transactionLock = actorSystem.actorOf(TransactionLocks.props(maxTimeoutObtain, maxTimeoutReturn, removeStaleLocksAfter, checkInterval, maxPendingRequests))
+    implicit val transactionLockSettings = TransactionLockSettings(maxTimeoutObtain, maxTimeoutReturn, removeStaleLocksAfter, checkInterval, maxPendingRequests)
+    val transactionLock = actorSystem.actorOf(TransactionLocks.props())
 
     val client1 = TestProbe()
     val client2 = TestProbe()

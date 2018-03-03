@@ -27,8 +27,8 @@ import scala.concurrent.duration._
 
 object TransactionLocks {
 
-  def props(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: FiniteDuration, removeStaleLockAfter: FiniteDuration, checkInterval: FiniteDuration, maxPendingRequests: Int): Props =
-    Props(new TransactionLocks(maxTimeoutObtain, maxTimeoutReturn, removeStaleLockAfter, checkInterval, maxPendingRequests))
+  def props()(implicit transactionLockSettings: TransactionLockSettings): Props =
+    Props(new TransactionLocks())
 
   /**
    * All messages to [[TransactionLocks]] actor must extends this trait.
@@ -128,16 +128,11 @@ object TransactionLocks {
  *
  * Before calling one or more operations to modify a certain record, the caller *MUST* call the [[TransactionLocks]] to
  * obtain the lock associated to the entity to be modified.
- *
- * @param maxTimeoutObtain the maximum duration allowable waiting for a lock to be available
- * @param maxTimeoutReturn the maximum duration allowable to return a lock.
- *                         The lock which is not returned past this duration will be considered stale.
- * @param removeStaleLockAfter the duration where stale locks will be removed.
- * @param checkInterval the internal polling period to for removal of stale locks and processing of pending requests
  */
-class TransactionLocks(maxTimeoutObtain: FiniteDuration, maxTimeoutReturn: FiniteDuration, removeStaleLockAfter: FiniteDuration, checkInterval: FiniteDuration, maxPendingRequests: Int) extends Actor with ActorLogging {
+class TransactionLocks()(implicit transactionLockSettings: TransactionLockSettings) extends Actor with ActorLogging {
   import TransactionLocks._
 
+  import transactionLockSettings._
   import context.dispatcher
 
   override def preStart(): Unit = {
