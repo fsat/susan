@@ -6,21 +6,21 @@ import akka.cluster.MemberStatus
 import akka.testkit.TestProbe
 import id.au.fsat.susan.calvin.{ ClusteredTest, RecordId }
 import id.au.fsat.susan.calvin.ClusteredTest.ClusteredSetup
-import id.au.fsat.susan.calvin.lock.TransactionLockClusterShardingSettings.{ RecordIdToEntityId, RecordIdToShardId, ShardEntityIdToShardId }
-import id.au.fsat.susan.calvin.lock.TransactionLocks._
+import id.au.fsat.susan.calvin.lock.RecordLockClusterShardingSettings.{ RecordIdToEntityId, RecordIdToShardId, ShardEntityIdToShardId }
+import id.au.fsat.susan.calvin.lock.RecordLocks._
 import org.scalatest.{ FunSpec, Inside }
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
-object TransactionLocksClusterShardingTest {
+object RecordLocksClusterShardingTest {
   val recordIdValueToString: RecordIdToEntityId = _.value.toString
   val shardFromRecord: RecordIdToShardId = _ => y => y.value.toString
   val shardFromEntityId: ShardEntityIdToShardId = _ => y => y.toString
 }
 
-class TransactionLocksClusterShardingTest extends FunSpec with ClusteredTest with Inside {
-  import TransactionLocksClusterShardingTest._
+class RecordLocksClusterShardingTest extends FunSpec with ClusteredTest with Inside {
+  import RecordLocksClusterShardingTest._
 
   describe("obtaining transaction lock") {
     it("obtains the lock for a particular record") {
@@ -190,21 +190,21 @@ class TransactionLocksClusterShardingTest extends FunSpec with ClusteredTest wit
     recordIdToShardId: RecordIdToShardId = shardFromRecord,
     entityIdToShardId: ShardEntityIdToShardId = shardFromEntityId)(implicit clusteredSetup: ClusteredSetup) = new {
 
-    implicit val txLockSettings = TransactionLockSettings(
+    implicit val txLockSettings = RecordLockSettings(
       maxTimeoutObtain = 10000.millis,
       maxTimeoutReturn = 30000.millis,
       removeStaleLockAfter = 500.millis,
       checkInterval = 100.millis,
       maxPendingRequests = 3)
 
-    implicit val txLockShardingSettings = TransactionLockClusterShardingSettings(
+    implicit val txLockShardingSettings = RecordLockClusterShardingSettings(
       numberOfShards = numberOfShards,
       recordIdToEntityId = recordIdToEntityId,
       recordIdToShardId = recordIdToShardId,
       entityIdToShardId = entityIdToShardId)
 
-    val txLock1 = TransactionLocksClusterSharding.create(clusteredSetup.nodes.head._1)
-    val txLock2 = TransactionLocksClusterSharding.create(clusteredSetup.nodes(1)._1)
-    val txLock3 = TransactionLocksClusterSharding.create(clusteredSetup.nodes.last._1)
+    val txLock1 = RecordLocksClusterSharding.create(clusteredSetup.nodes.head._1)
+    val txLock2 = RecordLocksClusterSharding.create(clusteredSetup.nodes(1)._1)
+    val txLock3 = RecordLocksClusterSharding.create(clusteredSetup.nodes.last._1)
   }
 }

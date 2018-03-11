@@ -25,24 +25,24 @@ import id.au.fsat.susan.calvin.{ RecordId, RemoteMessage }
 import scala.collection.immutable.Seq
 import scala.concurrent.duration._
 
-object TransactionLocks {
+object RecordLocks {
   val name = "transaction-locks"
 
-  def props()(implicit transactionLockSettings: TransactionLockSettings): Props =
-    Props(new TransactionLocks())
+  def props()(implicit transactionLockSettings: RecordLockSettings): Props =
+    Props(new RecordLocks())
 
   /**
-   * All messages to [[TransactionLocks]] actor must extends this trait.
+   * All messages to [[RecordLocks]] actor must extends this trait.
    */
   sealed trait Message
 
   /**
-   * All input messages to [[TransactionLocks]] actor must extends this trait.
+   * All input messages to [[RecordLocks]] actor must extends this trait.
    */
   sealed trait RequestMessage extends RemoteMessage
 
   /**
-   * All response messages from [[TransactionLocks]] actor must extends this trait.
+   * All response messages from [[RecordLocks]] actor must extends this trait.
    */
   sealed trait ResponseMessage extends RemoteMessage
 
@@ -137,13 +137,13 @@ object TransactionLocks {
 /**
  * Responsible for transaction lock for a particular record.
  *
- * Before calling one or more operations to modify a certain record, the caller *MUST* call the [[TransactionLocks]] to
+ * Before calling one or more operations to modify a certain record, the caller *MUST* call the [[RecordLocks]] to
  * obtain the lock associated to the entity to be modified.
  */
-class TransactionLocks()(implicit transactionLockSettings: TransactionLockSettings) extends Actor with ActorLogging {
-  import TransactionLocks._
+class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Actor with ActorLogging {
+  import RecordLocks._
 
-  import transactionLockSettings._
+  import recordLockSettings._
   import context.dispatcher
 
   override def preStart(): Unit = {

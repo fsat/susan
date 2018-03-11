@@ -9,8 +9,8 @@ import org.scalatest.{ FunSpec, Inside }
 
 import scala.concurrent.duration._
 
-class TransactionLocksTest extends FunSpec with UnitTest with Inside {
-  import TransactionLocks._
+class RecordLocksTest extends FunSpec with UnitTest with Inside {
+  import RecordLocks._
 
   val maxTimeoutObtain = 1000.millis
   val maxTimeoutReturn = 5000.millis
@@ -309,8 +309,8 @@ class TransactionLocksTest extends FunSpec with UnitTest with Inside {
     val timeoutObtain = 300.millis
     val timeoutReturn = 2000.millis
 
-    implicit val transactionLockSettings = TransactionLockSettings(maxTimeoutObtain, maxTimeoutReturn, removeStaleLocksAfter, checkInterval, maxPendingRequests)
-    val transactionLock = actorSystem.actorOf(TransactionLocks.props())
+    implicit val transactionLockSettings = RecordLockSettings(maxTimeoutObtain, maxTimeoutReturn, removeStaleLocksAfter, checkInterval, maxPendingRequests)
+    val transactionLock = actorSystem.actorOf(RecordLocks.props())
 
     val client1 = TestProbe()
     val client2 = TestProbe()

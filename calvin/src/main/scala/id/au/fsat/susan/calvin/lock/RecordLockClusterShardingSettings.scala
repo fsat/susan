@@ -2,16 +2,16 @@ package id.au.fsat.susan.calvin.lock
 
 import akka.cluster.sharding.ShardRegion
 import id.au.fsat.susan.calvin.RecordId
-import id.au.fsat.susan.calvin.lock.TransactionLockClusterShardingSettings._
+import id.au.fsat.susan.calvin.lock.RecordLockClusterShardingSettings._
 
-object TransactionLockClusterShardingSettings {
+object RecordLockClusterShardingSettings {
   type NumberOfShards = Int
   type RecordIdToEntityId = RecordId => String
   type RecordIdToShardId = NumberOfShards => RecordId => String
   type ShardEntityIdToShardId = NumberOfShards => ShardRegion.EntityId => String
 }
 
-case class TransactionLockClusterShardingSettings(
+case class RecordLockClusterShardingSettings(
   numberOfShards: Int,
   recordIdToEntityId: RecordIdToEntityId,
   recordIdToShardId: RecordIdToShardId,
