@@ -24,14 +24,14 @@ class RecordLocksClusterShardingTest extends FunSpec with ClusteredTest with Ins
 
   describe("obtaining transaction lock") {
     it("obtains the lock for a particular record") {
-      withCluster() { implicit cluster =>
+      withCluster() { implicit clusters =>
         val f = testFixture()
         import f._
 
         val timeoutObtain = f.txLockSettings.maxTimeoutObtain
         val timeoutReturn = f.txLockSettings.maxTimeoutReturn
 
-        val client = TestProbe()(cluster.nodes.head._1)
+        val client = TestProbe()(clusters.nodes.head._1)
 
         val requestId = RequestId(UUID.randomUUID())
         val recordId = RecordId(1)
@@ -50,14 +50,14 @@ class RecordLocksClusterShardingTest extends FunSpec with ClusteredTest with Ins
     }
 
     it("waits for lock to be available for a particular record, while allowing locks to be obtained for other record") {
-      withCluster() { implicit cluster =>
+      withCluster() { implicit clusters =>
         val f = testFixture()
         import f._
 
         val timeoutObtain = f.txLockSettings.maxTimeoutObtain
         val timeoutReturn = f.txLockSettings.maxTimeoutReturn
 
-        val client1 = TestProbe()(cluster.nodes.head._1)
+        val client1 = TestProbe()(clusters.nodes.head._1)
 
         val request1Id = RequestId(UUID.randomUUID())
         val record1Id = RecordId(1)
@@ -70,7 +70,7 @@ class RecordLocksClusterShardingTest extends FunSpec with ClusteredTest with Ins
             lock
         }
 
-        val client2 = TestProbe()(cluster.nodes(1)._1)
+        val client2 = TestProbe()(clusters.nodes(1)._1)
 
         val request2Id = RequestId(UUID.randomUUID())
         val record2Id = RecordId(2)
@@ -83,7 +83,7 @@ class RecordLocksClusterShardingTest extends FunSpec with ClusteredTest with Ins
             lock
         }
 
-        val client3 = TestProbe()(cluster.nodes.last._1)
+        val client3 = TestProbe()(clusters.nodes.last._1)
 
         val request3Id = RequestId(UUID.randomUUID())
 
@@ -111,14 +111,14 @@ class RecordLocksClusterShardingTest extends FunSpec with ClusteredTest with Ins
 
   describe("a crash occurred") {
     it("continues transaction lock operation") {
-      withCluster() { implicit cluster =>
+      withCluster() { implicit clusters =>
         val f = testFixture()
         import f._
 
         val timeoutObtain = f.txLockSettings.maxTimeoutObtain
         val timeoutReturn = f.txLockSettings.maxTimeoutReturn
 
-        val client1 = TestProbe()(cluster.nodes.head._1)
+        val client1 = TestProbe()(clusters.nodes.head._1)
 
         val request1Id = RequestId(UUID.randomUUID())
         val record1Id = RecordId(1)
@@ -131,7 +131,7 @@ class RecordLocksClusterShardingTest extends FunSpec with ClusteredTest with Ins
             lock
         }
 
-        val client2 = TestProbe()(cluster.nodes(1)._1)
+        val client2 = TestProbe()(clusters.nodes(1)._1)
 
         val request2Id = RequestId(UUID.randomUUID())
         val record2Id = RecordId(2)
@@ -144,7 +144,7 @@ class RecordLocksClusterShardingTest extends FunSpec with ClusteredTest with Ins
             lock
         }
 
-        val client3 = TestProbe()(cluster.nodes.last._1)
+        val client3 = TestProbe()(clusters.nodes.last._1)
 
         val request3Id = RequestId(UUID.randomUUID())
 
@@ -152,14 +152,14 @@ class RecordLocksClusterShardingTest extends FunSpec with ClusteredTest with Ins
         client3.expectNoMessage(100.millis)
 
         // Crash the first actor system, (hopefully) taking down the shard on the first node
-        Await.result(cluster.nodes.head._1.terminate(), Duration.Inf)
+        Await.result(clusters.nodes.head._1.terminate(), Duration.Inf)
         // Down the first actor from other 2 nodes
-        cluster.nodes.tail.foreach(_._2.down(cluster.nodes.head._2.selfUniqueAddress.address))
+        clusters.nodes.tail.foreach(_._2.down(clusters.nodes.head._2.selfUniqueAddress.address))
 
         client2.send(txLock2, LockReturnRequest(lock2))
         client2.expectMsg(LockReturnSuccess(lock2))
 
-        cluster.nodes.tail.foreach { v =>
+        clusters.nodes.tail.foreach { v =>
           TestProbe()(v._1).awaitAssert({
             v._2.state.members.count(_.status == MemberStatus.Up) shouldBe 2
           }, 10.seconds, 500.millis)
