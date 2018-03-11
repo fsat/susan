@@ -42,5 +42,6 @@ lazy val calvin = project
       Libraries.akkaClusterSharding,
       Libraries.scalaTest,
       Libraries.akkaTestKit
-    )
+    ),
+    parallelExecution in Test := false
   ))
