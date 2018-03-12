@@ -193,7 +193,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
         now.isAfter(deadline)
       }
 
-      val (runningTimedOut, runningAlive) = runningRequest.span(canRemove)
+      val runningTimedOut = runningRequest.filter(canRemove)
+      val runningAlive = runningRequest.filterNot(canRemove)
 
       runningTimedOut.foreach { v =>
         v.caller ! LockExpired(v.lock)
@@ -204,7 +205,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
         now.isAfter(deadline)
       }
 
-      val (pendingTimedOut, pendingAlive) = pendingRequests.span(timedOut)
+      val pendingTimedOut = pendingRequests.filter(timedOut)
+      val pendingAlive = pendingRequests.filterNot(timedOut)
 
       pendingTimedOut.foreach { v =>
         v.caller ! LockGetTimeout(v.request)
