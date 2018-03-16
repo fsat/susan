@@ -4,7 +4,7 @@ import akka.actor.ActorRef
 import akka.cluster.ddata.{ ORMap, ORMapKey }
 import id.au.fsat.susan.calvin.lock.RecordLocks.{ RecordLocksState, RequestId }
 
-object RecordLocksStates {
+object RecordLocksReplicatedStates {
 
   object DistributedData {
     val Key = ORMapKey[String, RecordLocksState]("record-locks")
@@ -28,6 +28,6 @@ object RecordLocksStates {
   case class UpdateStateFailure(request: UpdateStateRequest, message: String, error: Option[Throwable]) extends FailureMessage with ResponseMessage
 }
 
-class RecordLocksStates {
+class RecordLocksReplicatedStates {
 
 }

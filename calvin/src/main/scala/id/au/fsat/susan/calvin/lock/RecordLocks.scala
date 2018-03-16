@@ -19,9 +19,10 @@ package id.au.fsat.susan.calvin.lock
 import java.time.Instant
 import java.util.UUID
 
-import akka.actor.{ Actor, ActorLogging, ActorRef, Props }
+import akka.actor.{Actor, ActorLogging, ActorRef, Cancellable, Props}
 import akka.cluster.ddata.ReplicatedData
-import id.au.fsat.susan.calvin.{ RecordId, RemoteMessage }
+import akka.stream.actor.ActorPublisherMessage.Cancel
+import id.au.fsat.susan.calvin.{RecordId, RemoteMessage}
 
 import scala.collection.immutable.Seq
 import scala.concurrent.duration._
@@ -155,13 +156,31 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
   import recordLockSettings._
   import context.dispatcher
 
-  override def preStart(): Unit = {
-    context.system.scheduler.schedule(checkInterval, checkInterval, self, Tick)
+  override def receive: Receive = getState(RecordLocksState(Seq.empty, Seq.empty))(context.system.scheduler.schedule(0.millis, 100.millis, self, Tick))
+
+  private def getState(state: RecordLocksState)(implicit scheduler: Cancellable): Receive = {
+    case Tick =>
+
+    case RecordLocksReplicatedStates.GetStateSuccess(stateReplicated) =>
+      val stateUpdated = RecordLocksState(
+        runningRequests = (state.runningRequests ++ stateReplicated.runningRequests).sortBy(_.createdAt),
+        pendingRequests = (state.pendingRequests ++ stateReplicated.pendingRequests).sortBy(_.createdAt)
+      )
+
+      scheduler.cancel()
+
+      context.become(manageLocks(stateUpdated)(context.system.scheduler.schedule(checkInterval, checkInterval, self, Tick)))
+
+    case v: RecordLocksReplicatedStates.GetStateFailure =>
+
+    case v: LockGetRequest =>
+      // TODO: append to pending request
+
+    case v: LockReturnRequest =>
+    // TODO: we need pending request for this too?
   }
 
-  override def receive: Receive = manageLocks(RecordLocksState(Seq.empty, Seq.empty))
-
-  private def manageLocks(state: RecordLocksState): Receive = {
+  private def manageLocks(state: RecordLocksState)(implicit scheduler: Cancellable): Receive = {
     case request @ LockGetRequest(_, _, timeoutObtain, _) if timeoutObtain > maxTimeoutObtain =>
       sender() ! LockGetFailure(request, new IllegalArgumentException(s"The lock obtain timeout of [${timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
 
@@ -173,27 +192,35 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       if (existingTransactions.isEmpty) {
         val now = Instant.now()
         val lock = Lock(requestId, recordId, UUID.randomUUID(), createdAt = now, returnDeadline = now.plusNanos(timeoutReturn.toNanos))
+        val runningRequest = RunningRequest(sender(), request, now, lock)
 
-        sender() ! LockGetSuccess(lock)
+        context.become(appendRunningRequest(runningRequest, state.copy(runningRequests = state.runningRequests :+ runningRequest)))
 
-        context.become(manageLocks(state.copy(runningRequests = state.runningRequests :+ RunningRequest(sender(), request, now, lock))))
+//        sender() ! LockGetSuccess(lock)
+//
+//        context.become(manageLocks(state.copy(runningRequests = state.runningRequests :+ runningRequest)))
 
       } else if (!state.pendingRequests.exists(_.request.requestId == requestId)) {
-        context.become(manageLocks(state.copy(pendingRequests = state.pendingRequests :+ PendingRequest(sender(), request, Instant.now()))))
+        val pendingRequest = PendingRequest(sender(), request, Instant.now())
+
+        context.become(appendPendingRequest(pendingRequest, state.copy(pendingRequests = state.pendingRequests :+ pendingRequest)))
+
+//        context.become(manageLocks(state.copy(pendingRequests = state.pendingRequests :+ pendingRequest)))
       }
 
     case LockReturnRequest(lock) =>
-      val now = Instant.now()
-      val isLate = now.isAfter(lock.returnDeadline)
-
-      if (state.runningRequests.exists(_.lock == lock)) {
-        val response = if (isLate) LockReturnLate(lock) else LockReturnSuccess(lock)
-        sender() ! response
-
-        context.become(manageLocks(state.copy(runningRequests = state.runningRequests.filterNot(_.lock == lock))))
-      } else {
-        sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
-      }
+//      val now = Instant.now()
+//      val isLate = now.isAfter(lock.returnDeadline)
+//
+//      if (state.runningRequests.exists(_.lock == lock)) {
+//        val response = if (isLate) LockReturnLate(lock) else LockReturnSuccess(lock)
+//        sender() ! response
+//
+//        context.become(manageLocks(state.copy(runningRequests = state.runningRequests.filterNot(_.lock == lock))))
+//      } else {
+//        sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
+//      }
+      context.become(returnLock(sender(), lock, state))
 
     case Tick =>
       val now = Instant.now()
@@ -206,9 +233,9 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       val runningTimedOut = state.runningRequests.filter(canRemove)
       val runningAlive = state.runningRequests.filterNot(canRemove)
 
-      runningTimedOut.foreach { v =>
-        v.caller ! LockExpired(v.lock)
-      }
+//      runningTimedOut.foreach { v =>
+//        v.caller ! LockExpired(v.lock)
+//      }
 
       def timedOut(input: PendingRequest): Boolean = {
         val deadline = input.createdAt.plusNanos(input.request.timeoutObtain.toNanos)
@@ -218,9 +245,9 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       val pendingTimedOut = state.pendingRequests.filter(timedOut)
       val pendingAlive = state.pendingRequests.filterNot(timedOut)
 
-      pendingTimedOut.foreach { v =>
-        v.caller ! LockGetTimeout(v.request)
-      }
+//      pendingTimedOut.foreach { v =>
+//        v.caller ! LockGetTimeout(v.request)
+//      }
 
       def canProcess(input: PendingRequest): Boolean =
         !runningAlive.exists(_.request.recordId == input.request.recordId)
@@ -229,17 +256,24 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       val pendingAliveKept = pendingAliveSorted.take(maxPendingRequests)
       val pendingAliveDropped = pendingAliveSorted.takeRight(pendingAliveSorted.length - maxPendingRequests)
 
-      pendingAliveDropped.foreach { v =>
-        v.caller ! LockGetRequestDropped(v.request)
-      }
+//      pendingAliveDropped.foreach { v =>
+//        v.caller ! LockGetRequestDropped(v.request)
+//      }
 
-      pendingAliveKept.find(canProcess) match {
-        case Some(v @ PendingRequest(caller, request, _)) =>
-          self.tell(request, sender = caller)
-          context.become(manageLocks(state.copy(runningRequests = runningAlive, pendingRequests = pendingAliveKept.filterNot(_ == v))))
+//      pendingAliveKept.find(canProcess) match {
+//        case Some(v @ PendingRequest(caller, request, _)) =>
+//          self.tell(request, sender = caller)
+//          context.become(manageLocks(state.copy(runningRequests = runningAlive, pendingRequests = pendingAliveKept.filterNot(_ == v))))
+//
+//        case _ =>
+//          context.become(manageLocks(state.copy(runningRequests = runningAlive, pendingRequests = pendingAliveKept)))
+//      }
 
-        case _ =>
-          context.become(manageLocks(state.copy(runningRequests = runningAlive, pendingRequests = pendingAliveKept)))
-      }
+    context.become(processInternalState(state, runningAlive, runningTimedOut, pendingAliveKept, pendingTimedOut, pendingAliveDropped))
   }
+
+  private def appendRunningRequest(runningRequest: RunningRequest, state: RecordLocksState)(implicit scheduler: Cancellable): Receive = ???
+  private def appendPendingRequest(pendingRequest: PendingRequest, state: RecordLocksState)(implicit scheduler: Cancellable): Receive = ???
+  private def returnLock(sender: ActorRef, lock: Lock, state: RecordLocksState)(implicit scheduler: Cancellable): Receive = ???
+  private def processInternalState(state: RecordLocksState, runningAlive: Seq[RunningRequest], runningTimedOut: Seq[RunningRequest], pendingAlive: Seq[PendingRequest], pendingTimedOut: Seq[PendingRequest], pendingAliveDropped: Seq[PendingRequest])(implicit scheduler: Cancellable): Receive = ???
 }
