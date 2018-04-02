@@ -279,10 +279,10 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           val requestId1 = RequestId(UUID.randomUUID())
           val record = RecordId(1)
 
-          client1.send(transactionLock, LockGetRequest(requestId1, record, timeoutObtain, timeoutReturn))
+          client1.send(transactionLock, LockGetRequest(requestId1, record, timeoutObtain, 100.millis))
           val lock1 = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `record`, _, createdAt, returnDeadline)) =>
-              createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
+              createdAt.plusNanos(100.millis.toNanos) shouldBe returnDeadline
               lock
           }
 
