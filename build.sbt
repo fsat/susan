@@ -1,7 +1,7 @@
 import scalariform.formatter.preferences._
 
 lazy val Versions = new {
-  val akka = "2.5.7"
+  val akka = "2.5.11"
   val scalaTest = "3.0.4"
   val scalaVersion = "2.12.4"
 }
