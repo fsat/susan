@@ -15,8 +15,8 @@ import scala.concurrent.duration._
 
 object RecordLocksClusterShardingTest {
   val recordIdValueToString: RecordIdToEntityId = _.value.toString
-  val shardFromRecord: RecordIdToShardId = _ => y => y.value.toString
-  val shardFromEntityId: ShardEntityIdToShardId = _ => y => y.toString
+  val shardFromRecord: RecordIdToShardId = shardCount => y => (y.value.toString.toLong % shardCount).toString
+  val shardFromEntityId: ShardEntityIdToShardId = shardCount => y => (y.toString.toLong % shardCount).toString
 }
 
 class RecordLocksClusterShardingTest extends FunSpec with ClusteredTest with Inside {
