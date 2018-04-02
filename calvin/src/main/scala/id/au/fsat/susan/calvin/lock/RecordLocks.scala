@@ -20,7 +20,6 @@ import java.time.Instant
 import java.util.UUID
 
 import akka.actor.{ Actor, ActorLogging, ActorRef, Props }
-import akka.cluster.ddata.ReplicatedData
 import id.au.fsat.susan.calvin.{ RecordId, RemoteMessage }
 
 import scala.collection.immutable.Seq
@@ -137,10 +136,7 @@ object RecordLocks {
   /**
    * Represents the internal state of [[RecordLocks]] actor.
    */
-  case class RecordLocksState(runningRequests: Seq[RunningRequest], pendingRequests: Seq[PendingRequest]) extends ReplicatedData {
-    override type T = RecordLocksState
-    override def merge(that: RecordLocksState): RecordLocksState = that
-  }
+  case class RecordLocksState(runningRequests: Seq[RunningRequest], pendingRequests: Seq[PendingRequest])
 }
 
 /**
