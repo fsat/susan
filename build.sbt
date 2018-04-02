@@ -8,7 +8,7 @@ lazy val Versions = new {
 
 lazy val Libraries = new {
   val akka                    = "com.typesafe.akka" %% "akka-actor"                 % Versions.akka
-  val akkaTyped               = "com.typesafe.akka" %% "akka-actor-typed"            % Versions.akka
+  val akkaTyped               = "com.typesafe.akka" %% "akka-actor-typed"           % Versions.akka
   val akkaStreams             = "com.typesafe.akka" %% "akka-stream"                % Versions.akka
   val akkaClusterSharding     = "com.typesafe.akka" %% "akka-cluster-sharding"      % Versions.akka
   val akkaTestKit             = "com.typesafe.akka" %% "akka-testkit"               % Versions.akka        % "test"
@@ -39,7 +39,6 @@ lazy val calvin = project
   .settings(Seq(
     libraryDependencies ++= Seq(
       Libraries.akka,
-      Libraries.akkaTyped,
       Libraries.akkaStreams,
       Libraries.akkaClusterSharding,
       Libraries.scalaTest,
