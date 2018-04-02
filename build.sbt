@@ -33,6 +33,9 @@ lazy val susan = project
   .aggregate(
     calvin
   )
+  .settings(
+    parallelExecution in Test := false
+  )
 
 lazy val calvin = project
   .in(file("calvin"))
