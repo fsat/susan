@@ -41,8 +41,8 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client2.expectNoMessage(100.millis)
         }
 
-        it("allows obtaining locks from multiple records concurrently") {
-          val f = testFixture()
+        it("allows locking from a different record as long as previous lock has been returned") {
+          val f = testFixture(maxTimeoutObtain = maxTimeoutObtain, maxTimeoutReturn = maxTimeoutReturn)
           import f._
 
           val requestId1 = RequestId(UUID.randomUUID())
@@ -59,14 +59,15 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           val record2 = RecordId(2)
 
           client2.send(transactionLock, LockGetRequest(requestId2, record2, maxTimeoutObtain, timeoutReturn))
+
+          client1.send(transactionLock, LockReturnRequest(lock1))
+          client1.expectMsg(LockReturnSuccess(lock1))
+
           val lock2 = inside(client2.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId2`, `record2`, _, createdAt, returnDeadline)) =>
               createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
           }
-
-          client1.send(transactionLock, LockReturnRequest(lock1))
-          client1.expectMsg(LockReturnSuccess(lock1))
 
           client2.send(transactionLock, LockReturnRequest(lock2))
           client2.expectMsg(LockReturnSuccess(lock2))

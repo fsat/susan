@@ -136,7 +136,7 @@ object RecordLocks {
   /**
    * Represents the internal state of [[RecordLocks]] actor.
    */
-  case class RecordLocksState(runningRequests: Seq[RunningRequest], pendingRequests: Seq[PendingRequest])
+  case class RecordLocksState(runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest])
 }
 
 /**
@@ -155,7 +155,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
     context.system.scheduler.schedule(checkInterval, checkInterval, self, Tick)
   }
 
-  override def receive: Receive = manageLocks(RecordLocksState(Seq.empty, Seq.empty))
+  override def receive: Receive = manageLocks(RecordLocksState(Option.empty, Seq.empty))
 
   private def manageLocks(state: RecordLocksState): Receive = {
     case request @ LockGetRequest(_, _, timeoutObtain, _) if timeoutObtain > maxTimeoutObtain =>
@@ -165,14 +165,13 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       sender() ! LockGetFailure(request, new IllegalArgumentException(s"The lock return timeout of [${timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
 
     case request @ LockGetRequest(requestId, recordId, _, timeoutReturn) =>
-      val existingTransactions = state.runningRequests.filter(_.request.recordId == recordId)
-      if (existingTransactions.isEmpty) {
+      if (state.runningRequest.isEmpty) {
         val now = Instant.now()
         val lock = Lock(requestId, recordId, UUID.randomUUID(), createdAt = now, returnDeadline = now.plusNanos(timeoutReturn.toNanos))
 
         sender() ! LockGetSuccess(lock)
 
-        context.become(manageLocks(state.copy(runningRequests = state.runningRequests :+ RunningRequest(sender(), request, now, lock))))
+        context.become(manageLocks(state.copy(runningRequest = Some(RunningRequest(sender(), request, now, lock)))))
 
       } else if (!state.pendingRequests.exists(_.request.requestId == requestId)) {
         context.become(manageLocks(state.copy(pendingRequests = state.pendingRequests :+ PendingRequest(sender(), request, Instant.now()))))
@@ -182,11 +181,11 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       val now = Instant.now()
       val isLate = now.isAfter(lock.returnDeadline)
 
-      if (state.runningRequests.exists(_.lock == lock)) {
+      if (state.runningRequest.exists(_.lock == lock)) {
         val response = if (isLate) LockReturnLate(lock) else LockReturnSuccess(lock)
         sender() ! response
 
-        context.become(manageLocks(state.copy(runningRequests = state.runningRequests.filterNot(_.lock == lock))))
+        context.become(manageLocks(state.copy(runningRequest = None)))
       } else {
         sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
       }
@@ -199,8 +198,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
         now.isAfter(deadline)
       }
 
-      val runningTimedOut = state.runningRequests.filter(canRemove)
-      val runningAlive = state.runningRequests.filterNot(canRemove)
+      val runningTimedOut = state.runningRequest.filter(canRemove)
+      val runningAlive = state.runningRequest.filterNot(canRemove)
 
       runningTimedOut.foreach { v =>
         v.caller ! LockExpired(v.lock)
@@ -232,10 +231,10 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       pendingAliveKept.find(canProcess) match {
         case Some(v @ PendingRequest(caller, request, _)) =>
           self.tell(request, sender = caller)
-          context.become(manageLocks(state.copy(runningRequests = runningAlive, pendingRequests = pendingAliveKept.filterNot(_ == v))))
+          context.become(manageLocks(state.copy(runningRequest = runningAlive, pendingRequests = pendingAliveKept.filterNot(_ == v))))
 
         case _ =>
-          context.become(manageLocks(state.copy(runningRequests = runningAlive, pendingRequests = pendingAliveKept)))
+          context.become(manageLocks(state.copy(runningRequest = runningAlive, pendingRequests = pendingAliveKept)))
       }
   }
 }
