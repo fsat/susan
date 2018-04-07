@@ -190,11 +190,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
   private def loadState(pendingRequests: Seq[PendingRequest]): StateTransition =
     rejectInvalidLockGetRequest
       .orElse(rejectLockReturnRequest)
+      .orElse(appendLockGetRequestToPending(pendingRequests)(nextState = loadState))
       .orElse(StateTransition {
-        case v: LockGetRequest =>
-          val pendingRequest = PendingRequest(sender(), v, Instant.now())
-          loadState(pendingRequests :+ pendingRequest)
-
         case Tick =>
           // TODO: wait for the loaded state prior deciding idle (or nextPendingRequest)
           if (pendingRequests.isEmpty)
@@ -223,11 +220,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
   private def pendingLockObtained(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition =
     rejectInvalidLockGetRequest
+      .orElse(appendLockGetRequestToPending(pendingRequests)(nextState = pendingLockObtained(runningRequest, _)))
       .orElse(StateTransition {
-        case v: LockGetRequest =>
-          val pendingRequest = PendingRequest(sender(), v, Instant.now())
-          pendingLockObtained(runningRequest, pendingRequests :+ pendingRequest)
-
         case LockReturnRequest(lock) if lock == runningRequest.lock =>
           pendingLockReturned(runningRequest, pendingRequests)
 
@@ -245,11 +239,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
   private def locked(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition =
     rejectInvalidLockGetRequest
+      .orElse(appendLockGetRequestToPending(pendingRequests)(nextState = locked(runningRequest, _)))
       .orElse(StateTransition {
-        case v: LockGetRequest =>
-          val pendingRequest = PendingRequest(sender(), v, Instant.now())
-          locked(runningRequest, pendingRequests :+ pendingRequest)
-
         case LockReturnRequest(lock) if lock == runningRequest.lock =>
           // TODO: persist lock returned + pending requests into state
           pendingLockReturned(runningRequest, pendingRequests)
@@ -275,11 +266,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
   private def pendingLockExpired(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition =
     rejectInvalidLockGetRequest
+      .orElse(appendLockGetRequestToPending(pendingRequests)(nextState = pendingLockExpired(runningRequest, _)))
       .orElse(StateTransition {
-        case v: LockGetRequest =>
-          val pendingRequest = PendingRequest(sender(), v, Instant.now())
-          pendingLockExpired(runningRequest, pendingRequests :+ pendingRequest)
-
         case LockReturnRequest(lock) if lock == runningRequest.lock =>
           // TODO: what should we do here? for now, we'll reply to both sender & running requests and lock is expired
           val lockExpired = LockExpired(runningRequest.lock)
@@ -311,19 +299,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
   private def pendingLockReturned(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition =
     rejectInvalidLockGetRequest
+      .orElse(appendLockGetRequestToPending(pendingRequests)(nextState = pendingLockReturned(runningRequest, _)))
       .orElse(StateTransition {
-        case v @ LockGetRequest(_, _, timeoutObtain, _) if timeoutObtain > maxTimeoutObtain =>
-          sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock obtain timeout of [${timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
-          StateTransition.Stay
-
-        case v @ LockGetRequest(_, _, _, timeoutReturn) if timeoutReturn > maxTimeoutReturn =>
-          sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock return timeout of [${timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
-          StateTransition.Stay
-
-        case v: LockGetRequest =>
-          val pendingRequest = PendingRequest(sender(), v, Instant.now())
-          pendingLockReturned(runningRequest, pendingRequests :+ pendingRequest)
-
         case LockReturnRequest(lock) if lock == runningRequest.lock =>
           // TODO: what should we do here? for now, we'll reply to both sender & running requests and lock is returned
           val lockReturned = LockReturnSuccess(runningRequest.lock)
@@ -357,11 +334,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
   private def nextPendingRequest(pendingRequests: Seq[PendingRequest]): StateTransition =
     rejectInvalidLockGetRequest
       .orElse(rejectLockReturnRequest)
+      .orElse(appendLockGetRequestToPending(pendingRequests)(nextState = nextPendingRequest))
       .orElse(StateTransition {
-        case v: LockGetRequest =>
-          val pendingRequest = PendingRequest(sender(), v, Instant.now())
-          nextPendingRequest(pendingRequests :+ pendingRequest)
-
         case Tick =>
           if (pendingRequests.isEmpty)
             idle()
@@ -396,6 +370,12 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
     case LockReturnRequest(lock) =>
       sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
       StateTransition.Stay
+  }
+
+  private def appendLockGetRequestToPending(pendingRequests: Seq[PendingRequest])(nextState: Seq[PendingRequest] => StateTransition): StateTransition = StateTransition {
+    case v: LockGetRequest =>
+      val pendingRequest = PendingRequest(sender(), v, Instant.now())
+      nextState(pendingRequests :+ pendingRequest)
   }
 
   private def isExpired(now: Instant, runningRequest: RunningRequest): Boolean = {
