@@ -28,6 +28,29 @@ import scala.concurrent.duration._
 object RecordLocks {
   val name = "transaction-locks"
 
+  object StateTransition {
+    object Stay extends StateTransition {
+      override def isDefinedAt(x: RequestMessage): Boolean = false
+      override def apply(v1: RequestMessage): StateTransition = Stay
+    }
+
+    def apply(pf: PartialFunction[RequestMessage, StateTransition]): StateTransition = new StateTransition {
+      override def isDefinedAt(x: RequestMessage): Boolean = pf.isDefinedAt(x)
+      override def apply(v1: RequestMessage): StateTransition = pf.apply(v1)
+    }
+  }
+
+  abstract class StateTransition extends PartialFunction[RequestMessage, StateTransition] {
+    def orElse(other: StateTransition): StateTransition = {
+      val self = this
+
+      new StateTransition {
+        override def isDefinedAt(x: RequestMessage): Boolean = self.isDefinedAt(x) || other.isDefinedAt(x)
+        override def apply(v1: RequestMessage): StateTransition = self.applyOrElse(v1, other)
+      }
+    }
+  }
+
   def props()(implicit transactionLockSettings: RecordLockSettings): Props =
     Props(new RecordLocks())
 
@@ -61,7 +84,7 @@ object RecordLocks {
    * - processing pending lock requests
    * - removal of stale locks
    */
-  case object Tick extends InternalMessage
+  case object Tick extends RequestMessage with InternalMessage
 
   /**
    * Id for a particular lock request.
@@ -156,222 +179,227 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
     // TODO: load state
   }
 
-  override def receive: Receive = loadState(Seq.empty)
+  override def receive: Receive = stateTransition(loadState(Seq.empty))
 
-  private def loadState(pendingRequests: Seq[PendingRequest]): Receive = {
-    case request @ LockGetRequest(_, _, timeoutObtain, _) if timeoutObtain > maxTimeoutObtain =>
-      sender() ! LockGetFailure(request, new IllegalArgumentException(s"The lock obtain timeout of [${timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
-
-    case request @ LockGetRequest(_, _, _, timeoutReturn) if timeoutReturn > maxTimeoutReturn =>
-      sender() ! LockGetFailure(request, new IllegalArgumentException(s"The lock return timeout of [${timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
-
-    case v: LockGetRequest =>
-      val pendingRequest = PendingRequest(sender(), v, Instant.now())
-      context.become(loadState(pendingRequests :+ pendingRequest))
-
-    case LockReturnRequest(lock) =>
-      sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
-
-    case Tick =>
-      // TODO: wait for the loaded state prior deciding idle (or nextPendingRequest)
-      if (pendingRequests.isEmpty)
-        context.become(idle())
-      else
-        context.become(nextPendingRequest(pendingRequests))
+  private def stateTransition(currentState: StateTransition): Receive = {
+    case v: RequestMessage =>
+      val nextState = currentState(v)
+      context.become(stateTransition(if (nextState == StateTransition.Stay) currentState else nextState))
   }
 
-  private def idle(): Receive = {
-    case request @ LockGetRequest(_, _, timeoutObtain, _) if timeoutObtain > maxTimeoutObtain =>
-      sender() ! LockGetFailure(request, new IllegalArgumentException(s"The lock obtain timeout of [${timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
+  private def loadState(pendingRequests: Seq[PendingRequest]): StateTransition =
+    rejectInvalidLockGetRequest
+      .orElse(StateTransition {
+        case v: LockGetRequest =>
+          val pendingRequest = PendingRequest(sender(), v, Instant.now())
+          loadState(pendingRequests :+ pendingRequest)
 
-    case request @ LockGetRequest(_, _, _, timeoutReturn) if timeoutReturn > maxTimeoutReturn =>
-      sender() ! LockGetFailure(request, new IllegalArgumentException(s"The lock return timeout of [${timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
+        case LockReturnRequest(lock) =>
+          sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
+          StateTransition.Stay
 
-    case request @ LockGetRequest(requestId, recordId, _, timeoutReturn) =>
-      val now = Instant.now()
-      val lock = Lock(requestId, recordId, UUID.randomUUID(), createdAt = now, returnDeadline = now.plusNanos(timeoutReturn.toNanos))
+        case Tick =>
+          // TODO: wait for the loaded state prior deciding idle (or nextPendingRequest)
+          if (pendingRequests.isEmpty)
+            idle()
+          else
+            nextPendingRequest(pendingRequests)
+      })
 
-      // TODO: persist lock in flight + no pending requests into state
+  private def idle(): StateTransition =
+    rejectInvalidLockGetRequest
+      .orElse(StateTransition {
+        case request @ LockGetRequest(requestId, recordId, _, timeoutReturn) =>
+          val now = Instant.now()
+          val lock = Lock(requestId, recordId, UUID.randomUUID(), createdAt = now, returnDeadline = now.plusNanos(timeoutReturn.toNanos))
 
-      val runningRequest = RunningRequest(sender, request, Instant.now(), lock)
-      context.become(pendingLockObtained(runningRequest, Seq.empty))
+          // TODO: persist lock in flight + no pending requests into state
 
-    case LockReturnRequest(lock) =>
-      sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
+          val runningRequest = RunningRequest(sender, request, Instant.now(), lock)
+          pendingLockObtained(runningRequest, Seq.empty)
 
-    case Tick =>
-    // Nothing to do, everything clear
-  }
+        case LockReturnRequest(lock) =>
+          sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
+          StateTransition.Stay
 
-  private def pendingLockObtained(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): Receive = {
+        case Tick =>
+          // Nothing to do, everything clear
+          StateTransition.Stay
+      })
+
+  private def pendingLockObtained(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition =
+    rejectInvalidLockGetRequest
+      .orElse(StateTransition {
+        case v: LockGetRequest =>
+          val pendingRequest = PendingRequest(sender(), v, Instant.now())
+          pendingLockObtained(runningRequest, pendingRequests :+ pendingRequest)
+
+        case LockReturnRequest(lock) if lock == runningRequest.lock =>
+          pendingLockReturned(runningRequest, pendingRequests)
+
+        case LockReturnRequest(lock) =>
+          sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
+          StateTransition.Stay
+
+        case Tick =>
+          // TODO: wait for reply that state have been saved
+          // TODO: cancel running requests if timed out
+          // TODO: clean up stale pending requests
+          runningRequest.caller ! LockGetSuccess(runningRequest.lock)
+          locked(runningRequest, pendingRequests)
+      })
+
+  private def locked(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition =
+    rejectInvalidLockGetRequest
+      .orElse(StateTransition {
+
+        case v: LockGetRequest =>
+          val pendingRequest = PendingRequest(sender(), v, Instant.now())
+          locked(runningRequest, pendingRequests :+ pendingRequest)
+
+        case LockReturnRequest(lock) if lock == runningRequest.lock =>
+          // TODO: persist lock returned + pending requests into state
+          pendingLockReturned(runningRequest, pendingRequests)
+
+        case LockReturnRequest(lock) =>
+          sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
+          StateTransition.Stay
+
+        case Tick =>
+          val now = Instant.now()
+          val (pendingAliveKept, pendingAliveDropped) = filterExpired(now, pendingRequests)
+
+          pendingAliveDropped.foreach { v =>
+            v.caller ! LockGetRequestDropped(v.request)
+          }
+
+          if (isExpired(now, runningRequest))
+            // TODO: persist lock expired + pending requests into state
+            pendingLockExpired(runningRequest, pendingAliveKept)
+          else
+            locked(runningRequest, pendingAliveKept)
+      })
+
+  private def pendingLockExpired(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition =
+    rejectInvalidLockGetRequest
+      .orElse(StateTransition {
+        case v: LockGetRequest =>
+          val pendingRequest = PendingRequest(sender(), v, Instant.now())
+          pendingLockExpired(runningRequest, pendingRequests :+ pendingRequest)
+
+        case LockReturnRequest(lock) if lock == runningRequest.lock =>
+          // TODO: what should we do here? for now, we'll reply to both sender & running requests and lock is expired
+          val lockExpired = LockExpired(runningRequest.lock)
+
+          sender() ! lockExpired
+          runningRequest.caller ! lockExpired
+
+          if (pendingRequests.isEmpty)
+            idle()
+          else
+            nextPendingRequest(pendingRequests)
+
+        case LockReturnRequest(lock) =>
+          sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
+          StateTransition.Stay
+
+        case Tick =>
+          // TODO: wait for reply that state have been saved
+          // TODO: cancel running requests if timed out
+          // TODO: clean up stale pending requests
+
+          runningRequest.caller ! LockExpired(runningRequest.lock)
+
+          if (pendingRequests.isEmpty)
+            idle()
+          else
+            nextPendingRequest(pendingRequests)
+      })
+
+  private def pendingLockReturned(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition =
+    rejectInvalidLockGetRequest
+      .orElse(StateTransition {
+        case v @ LockGetRequest(_, _, timeoutObtain, _) if timeoutObtain > maxTimeoutObtain =>
+          sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock obtain timeout of [${timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
+          StateTransition.Stay
+
+        case v @ LockGetRequest(_, _, _, timeoutReturn) if timeoutReturn > maxTimeoutReturn =>
+          sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock return timeout of [${timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
+          StateTransition.Stay
+
+        case v: LockGetRequest =>
+          val pendingRequest = PendingRequest(sender(), v, Instant.now())
+          pendingLockReturned(runningRequest, pendingRequests :+ pendingRequest)
+
+        case LockReturnRequest(lock) if lock == runningRequest.lock =>
+          // TODO: what should we do here? for now, we'll reply to both sender & running requests and lock is returned
+          val lockReturned = LockReturnSuccess(runningRequest.lock)
+
+          sender() ! lockReturned
+          runningRequest.caller ! lockReturned
+
+          if (pendingRequests.isEmpty)
+            idle()
+          else
+            nextPendingRequest(pendingRequests)
+
+        case LockReturnRequest(lock) =>
+          sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
+          StateTransition.Stay
+
+        case Tick =>
+          // TODO: wait for reply that state have been saved
+          // TODO: cancel running requests if timed out
+          // TODO: clean up stale pending requests
+
+          val now = Instant.now()
+          val isLate = now.isAfter(runningRequest.lock.returnDeadline)
+          val reply = if (isLate) LockReturnLate(runningRequest.lock) else LockReturnSuccess(runningRequest.lock)
+
+          runningRequest.caller ! reply
+
+          nextPendingRequest(pendingRequests)
+      })
+
+  private def nextPendingRequest(pendingRequests: Seq[PendingRequest]): StateTransition =
+    rejectInvalidLockGetRequest
+      .orElse(StateTransition {
+        case v: LockGetRequest =>
+          val pendingRequest = PendingRequest(sender(), v, Instant.now())
+          nextPendingRequest(pendingRequests :+ pendingRequest)
+
+        case LockReturnRequest(lock) =>
+          sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
+          StateTransition.Stay
+
+        case Tick =>
+          if (pendingRequests.isEmpty)
+            idle()
+          else {
+            val pendingRequest = pendingRequests.head
+
+            val requestId = pendingRequest.request.requestId
+            val recordId = pendingRequest.request.recordId
+            val timeoutReturn = pendingRequest.request.timeoutReturn
+
+            val now = Instant.now()
+            val lock = Lock(requestId, recordId, UUID.randomUUID(), createdAt = now, returnDeadline = now.plusNanos(timeoutReturn.toNanos))
+
+            // TODO: persist lock in flight + no pending requests into state
+
+            val runningRequest = RunningRequest(pendingRequest.caller, pendingRequest.request, pendingRequest.createdAt, lock)
+            pendingLockObtained(runningRequest, pendingRequests.tail)
+          }
+      })
+
+  private def rejectInvalidLockGetRequest: StateTransition = StateTransition {
     case v @ LockGetRequest(_, _, timeoutObtain, _) if timeoutObtain > maxTimeoutObtain =>
       sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock obtain timeout of [${timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
+      StateTransition.Stay
 
     case v @ LockGetRequest(_, _, _, timeoutReturn) if timeoutReturn > maxTimeoutReturn =>
       sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock return timeout of [${timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
-
-    case v: LockGetRequest =>
-      val pendingRequest = PendingRequest(sender(), v, Instant.now())
-      context.become(pendingLockObtained(runningRequest, pendingRequests :+ pendingRequest))
-
-    case LockReturnRequest(lock) if lock == runningRequest.lock =>
-      context.become(pendingLockReturned(runningRequest, pendingRequests))
-
-    case LockReturnRequest(lock) =>
-      sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
-
-    case Tick =>
-      // TODO: wait for reply that state have been saved
-      // TODO: cancel running requests if timed out
-      // TODO: clean up stale pending requests
-      runningRequest.caller ! LockGetSuccess(runningRequest.lock)
-      context.become(locked(runningRequest, pendingRequests))
-  }
-
-  private def locked(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): Receive = {
-    case v @ LockGetRequest(_, _, timeoutObtain, _) if timeoutObtain > maxTimeoutObtain =>
-      sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock obtain timeout of [${timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
-
-    case v @ LockGetRequest(_, _, _, timeoutReturn) if timeoutReturn > maxTimeoutReturn =>
-      sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock return timeout of [${timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
-
-    case v: LockGetRequest =>
-      val pendingRequest = PendingRequest(sender(), v, Instant.now())
-      context.become(locked(runningRequest, pendingRequests :+ pendingRequest))
-
-    case LockReturnRequest(lock) if lock == runningRequest.lock =>
-      // TODO: persist lock returned + pending requests into state
-      context.become(pendingLockReturned(runningRequest, pendingRequests))
-
-    case LockReturnRequest(lock) =>
-      sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
-
-    case Tick =>
-      val now = Instant.now()
-      val (pendingAliveKept, pendingAliveDropped) = filterExpired(now, pendingRequests)
-
-      pendingAliveDropped.foreach { v =>
-        v.caller ! LockGetRequestDropped(v.request)
-      }
-
-      if (isExpired(now, runningRequest))
-        // TODO: persist lock expired + pending requests into state
-        context.become(pendingLockExpired(runningRequest, pendingAliveKept))
-      else
-        context.become(locked(runningRequest, pendingAliveKept))
-  }
-
-  private def pendingLockExpired(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): Receive = {
-    case v @ LockGetRequest(_, _, timeoutObtain, _) if timeoutObtain > maxTimeoutObtain =>
-      sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock obtain timeout of [${timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
-
-    case v @ LockGetRequest(_, _, _, timeoutReturn) if timeoutReturn > maxTimeoutReturn =>
-      sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock return timeout of [${timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
-
-    case v: LockGetRequest =>
-      val pendingRequest = PendingRequest(sender(), v, Instant.now())
-      context.become(pendingLockExpired(runningRequest, pendingRequests :+ pendingRequest))
-
-    case LockReturnRequest(lock) if lock == runningRequest.lock =>
-      // TODO: what should we do here? for now, we'll reply to both sender & running requests and lock is expired
-      val lockExpired = LockExpired(runningRequest.lock)
-
-      sender() ! lockExpired
-      runningRequest.caller ! lockExpired
-
-      if (pendingRequests.isEmpty)
-        context.become(idle())
-      else
-        context.become(nextPendingRequest(pendingRequests))
-
-    case LockReturnRequest(lock) =>
-      sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
-
-    case Tick =>
-      // TODO: wait for reply that state have been saved
-      // TODO: cancel running requests if timed out
-      // TODO: clean up stale pending requests
-
-      runningRequest.caller ! LockExpired(runningRequest.lock)
-
-      if (pendingRequests.isEmpty)
-        context.become(idle())
-      else
-        context.become(nextPendingRequest(pendingRequests))
-  }
-
-  private def pendingLockReturned(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): Receive = {
-    case v @ LockGetRequest(_, _, timeoutObtain, _) if timeoutObtain > maxTimeoutObtain =>
-      sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock obtain timeout of [${timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
-
-    case v @ LockGetRequest(_, _, _, timeoutReturn) if timeoutReturn > maxTimeoutReturn =>
-      sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock return timeout of [${timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
-
-    case v: LockGetRequest =>
-      val pendingRequest = PendingRequest(sender(), v, Instant.now())
-      context.become(pendingLockReturned(runningRequest, pendingRequests :+ pendingRequest))
-
-    case LockReturnRequest(lock) if lock == runningRequest.lock =>
-      // TODO: what should we do here? for now, we'll reply to both sender & running requests and lock is returned
-      val lockReturned = LockReturnSuccess(runningRequest.lock)
-
-      sender() ! lockReturned
-      runningRequest.caller ! lockReturned
-
-      if (pendingRequests.isEmpty)
-        context.become(idle())
-      else
-        context.become(nextPendingRequest(pendingRequests))
-
-    case LockReturnRequest(lock) =>
-      sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
-
-    case Tick =>
-      // TODO: wait for reply that state have been saved
-      // TODO: cancel running requests if timed out
-      // TODO: clean up stale pending requests
-
-      val now = Instant.now()
-      val isLate = now.isAfter(runningRequest.lock.returnDeadline)
-      val reply = if (isLate) LockReturnLate(runningRequest.lock) else LockReturnSuccess(runningRequest.lock)
-
-      runningRequest.caller ! reply
-
-      context.become(nextPendingRequest(pendingRequests))
-  }
-
-  private def nextPendingRequest(pendingRequests: Seq[PendingRequest]): Receive = {
-    case v @ LockGetRequest(_, _, timeoutObtain, _) if timeoutObtain > maxTimeoutObtain =>
-      sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock obtain timeout of [${timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
-
-    case v @ LockGetRequest(_, _, _, timeoutReturn) if timeoutReturn > maxTimeoutReturn =>
-      sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock return timeout of [${timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
-
-    case v: LockGetRequest =>
-      val pendingRequest = PendingRequest(sender(), v, Instant.now())
-      context.become(nextPendingRequest(pendingRequests :+ pendingRequest))
-
-    case LockReturnRequest(lock) =>
-      sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
-
-    case Tick =>
-      if (pendingRequests.isEmpty)
-        context.become(idle())
-      else {
-        val pendingRequest = pendingRequests.head
-
-        val requestId = pendingRequest.request.requestId
-        val recordId = pendingRequest.request.recordId
-        val timeoutReturn = pendingRequest.request.timeoutReturn
-
-        val now = Instant.now()
-        val lock = Lock(requestId, recordId, UUID.randomUUID(), createdAt = now, returnDeadline = now.plusNanos(timeoutReturn.toNanos))
-
-        // TODO: persist lock in flight + no pending requests into state
-
-        val runningRequest = RunningRequest(pendingRequest.caller, pendingRequest.request, pendingRequest.createdAt, lock)
-        context.become(pendingLockObtained(runningRequest, pendingRequests.tail))
-      }
+      StateTransition.Stay
   }
 
   private def isExpired(now: Instant, runningRequest: RunningRequest): Boolean = {
