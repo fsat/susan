@@ -30,25 +30,22 @@ object RecordLocks {
 
   object StateTransition {
     object Stay extends StateTransition {
-      override def isDefinedAt(x: RequestMessage): Boolean = false
-      override def apply(v1: RequestMessage): StateTransition = Stay
+      override def pf: PartialFunction[RequestMessage, StateTransition] = {
+        case _ => Stay
+      }
+      override def orElse(other: StateTransition): StateTransition = other
     }
 
-    def apply(pf: PartialFunction[RequestMessage, StateTransition]): StateTransition = new StateTransition {
-      override def isDefinedAt(x: RequestMessage): Boolean = pf.isDefinedAt(x)
-      override def apply(v1: RequestMessage): StateTransition = pf.apply(v1)
+    class PartialFunctionStateTransition(val pf: PartialFunction[RequestMessage, StateTransition]) extends StateTransition {
+      override def orElse(other: StateTransition): StateTransition = new PartialFunctionStateTransition(pf.orElse(other.pf))
     }
+
+    def apply(pf: PartialFunction[RequestMessage, StateTransition]): StateTransition = new PartialFunctionStateTransition(pf)
   }
 
-  abstract class StateTransition extends PartialFunction[RequestMessage, StateTransition] {
-    def orElse(other: StateTransition): StateTransition = {
-      val self = this
-
-      new StateTransition {
-        override def isDefinedAt(x: RequestMessage): Boolean = self.isDefinedAt(x) || other.isDefinedAt(x)
-        override def apply(v1: RequestMessage): StateTransition = self.applyOrElse(v1, other)
-      }
-    }
+  trait StateTransition {
+    def pf: PartialFunction[RequestMessage, StateTransition]
+    def orElse(other: StateTransition): StateTransition
   }
 
   def props()(implicit transactionLockSettings: RecordLockSettings): Props =
@@ -183,7 +180,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
   private def stateTransition(currentState: StateTransition): Receive = {
     case v: RequestMessage =>
-      val nextState = currentState(v)
+      val nextState = currentState.pf(v)
       context.become(stateTransition(if (nextState == StateTransition.Stay) currentState else nextState))
   }
 
