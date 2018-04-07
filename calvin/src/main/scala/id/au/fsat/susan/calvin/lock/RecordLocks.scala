@@ -29,23 +29,25 @@ object RecordLocks {
   val name = "transaction-locks"
 
   object StateTransition {
-    object Stay extends StateTransition {
-      override def pf: PartialFunction[RequestMessage, StateTransition] = {
-        case _ => Stay
+
+    case class Stay[A]() extends StateTransition[A] {
+      override def pf: PartialFunction[A, StateTransition[A]] = {
+        case _ => this
       }
-      override def orElse(other: StateTransition): StateTransition = other
+      override def orElse(other: StateTransition[A]): StateTransition[A] = other
     }
 
-    class PartialFunctionStateTransition(val pf: PartialFunction[RequestMessage, StateTransition]) extends StateTransition {
-      override def orElse(other: StateTransition): StateTransition = new PartialFunctionStateTransition(pf.orElse(other.pf))
+    case class PartialFunctionStateTransition[A](pf: PartialFunction[A, StateTransition[A]]) extends StateTransition[A] {
+      override def orElse(other: StateTransition[A]): StateTransition[A] = new PartialFunctionStateTransition(pf.orElse(other.pf))
     }
 
-    def apply(pf: PartialFunction[RequestMessage, StateTransition]): StateTransition = new PartialFunctionStateTransition(pf)
+    def apply[A](pf: PartialFunction[A, StateTransition[A]]): StateTransition[A] = new PartialFunctionStateTransition(pf)
+    def stay[A]: Stay[A] = Stay()
   }
 
-  trait StateTransition {
-    def pf: PartialFunction[RequestMessage, StateTransition]
-    def orElse(other: StateTransition): StateTransition
+  trait StateTransition[A] {
+    def pf: PartialFunction[A, StateTransition[A]]
+    def orElse(other: StateTransition[A]): StateTransition[A]
   }
 
   def props()(implicit transactionLockSettings: RecordLockSettings): Props =
@@ -178,13 +180,13 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
   override def receive: Receive = stateTransition(loadState(Seq.empty))
 
-  private def stateTransition(currentState: StateTransition): Receive = {
+  private def stateTransition(currentState: StateTransition[RequestMessage]): Receive = {
     case v: RequestMessage =>
       val nextState = currentState.pf(v)
-      context.become(stateTransition(if (nextState == StateTransition.Stay) currentState else nextState))
+      context.become(stateTransition(if (nextState == StateTransition.stay) currentState else nextState))
   }
 
-  private def loadState(pendingRequests: Seq[PendingRequest]): StateTransition =
+  private def loadState(pendingRequests: Seq[PendingRequest]): StateTransition[RequestMessage] =
     rejectInvalidLockGetRequest
       .orElse(rejectLockReturnRequest)
       .orElse(appendLockGetRequestToPending(pendingRequests)(nextState = loadState))
@@ -197,7 +199,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             nextPendingRequest(pendingRequests)
       })
 
-  private def idle(): StateTransition =
+  private def idle(): StateTransition[RequestMessage] =
     rejectInvalidLockGetRequest
       .orElse(rejectLockReturnRequest)
       .orElse(StateTransition {
@@ -212,10 +214,10 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
         case Tick =>
           // Nothing to do, everything clear
-          StateTransition.Stay
+          StateTransition.stay
       })
 
-  private def pendingLockObtained(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition =
+  private def pendingLockObtained(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition[RequestMessage] =
     rejectInvalidLockGetRequest
       .orElse(appendLockGetRequestToPending(pendingRequests)(nextState = pendingLockObtained(runningRequest, _)))
       .orElse(StateTransition {
@@ -224,7 +226,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
         case LockReturnRequest(lock) =>
           sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
-          StateTransition.Stay
+          StateTransition.stay
 
         case Tick =>
           // TODO: wait for reply that state have been saved
@@ -234,7 +236,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           locked(runningRequest, pendingRequests)
       })
 
-  private def locked(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition =
+  private def locked(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition[RequestMessage] =
     rejectInvalidLockGetRequest
       .orElse(appendLockGetRequestToPending(pendingRequests)(nextState = locked(runningRequest, _)))
       .orElse(StateTransition {
@@ -244,7 +246,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
         case LockReturnRequest(lock) =>
           sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
-          StateTransition.Stay
+          StateTransition.stay
 
         case Tick =>
           val now = Instant.now()
@@ -261,7 +263,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             locked(runningRequest, pendingAliveKept)
       })
 
-  private def pendingLockExpired(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition =
+  private def pendingLockExpired(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition[RequestMessage] =
     rejectInvalidLockGetRequest
       .orElse(appendLockGetRequestToPending(pendingRequests)(nextState = pendingLockExpired(runningRequest, _)))
       .orElse(StateTransition {
@@ -279,7 +281,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
         case LockReturnRequest(lock) =>
           sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
-          StateTransition.Stay
+          StateTransition.stay
 
         case Tick =>
           // TODO: wait for reply that state have been saved
@@ -294,7 +296,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             nextPendingRequest(pendingRequests)
       })
 
-  private def pendingLockReturned(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition =
+  private def pendingLockReturned(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest]): StateTransition[RequestMessage] =
     rejectInvalidLockGetRequest
       .orElse(appendLockGetRequestToPending(pendingRequests)(nextState = pendingLockReturned(runningRequest, _)))
       .orElse(StateTransition {
@@ -312,7 +314,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
         case LockReturnRequest(lock) =>
           sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
-          StateTransition.Stay
+          StateTransition.stay
 
         case Tick =>
           // TODO: wait for reply that state have been saved
@@ -328,7 +330,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           nextPendingRequest(pendingRequests)
       })
 
-  private def nextPendingRequest(pendingRequests: Seq[PendingRequest]): StateTransition =
+  private def nextPendingRequest(pendingRequests: Seq[PendingRequest]): StateTransition[RequestMessage] =
     rejectInvalidLockGetRequest
       .orElse(rejectLockReturnRequest)
       .orElse(appendLockGetRequestToPending(pendingRequests)(nextState = nextPendingRequest))
@@ -353,23 +355,23 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           }
       })
 
-  private def rejectInvalidLockGetRequest: StateTransition = StateTransition {
+  private def rejectInvalidLockGetRequest: StateTransition[RequestMessage] = StateTransition {
     case v @ LockGetRequest(_, _, timeoutObtain, _) if timeoutObtain > maxTimeoutObtain =>
       sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock obtain timeout of [${timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
-      StateTransition.Stay
+      StateTransition.stay
 
     case v @ LockGetRequest(_, _, _, timeoutReturn) if timeoutReturn > maxTimeoutReturn =>
       sender() ! LockGetFailure(v, new IllegalArgumentException(s"The lock return timeout of [${timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
-      StateTransition.Stay
+      StateTransition.stay
   }
 
-  private def rejectLockReturnRequest: StateTransition = StateTransition {
+  private def rejectLockReturnRequest: StateTransition[RequestMessage] = StateTransition {
     case LockReturnRequest(lock) =>
       sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
-      StateTransition.Stay
+      StateTransition.stay
   }
 
-  private def appendLockGetRequestToPending(pendingRequests: Seq[PendingRequest])(nextState: Seq[PendingRequest] => StateTransition): StateTransition = StateTransition {
+  private def appendLockGetRequestToPending(pendingRequests: Seq[PendingRequest])(nextState: Seq[PendingRequest] => StateTransition[RequestMessage]): StateTransition[RequestMessage] = StateTransition {
     case v: LockGetRequest =>
       val pendingRequest = PendingRequest(sender(), v, Instant.now())
       nextState(pendingRequests :+ pendingRequest)
