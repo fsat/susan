@@ -20,35 +20,13 @@ import java.time.Instant
 import java.util.UUID
 
 import akka.actor.{ Actor, ActorLogging, ActorRef, Props }
-import id.au.fsat.susan.calvin.{ RecordId, RemoteMessage }
+import id.au.fsat.susan.calvin.{ RecordId, RemoteMessage, StateTransition }
 
 import scala.collection.immutable.Seq
 import scala.concurrent.duration._
 
 object RecordLocks {
   val name = "transaction-locks"
-
-  object StateTransition {
-
-    case class Stay[A]() extends StateTransition[A] {
-      override def pf: PartialFunction[A, StateTransition[A]] = {
-        case _ => this
-      }
-      override def orElse(other: StateTransition[A]): StateTransition[A] = other
-    }
-
-    case class PartialFunctionStateTransition[A](pf: PartialFunction[A, StateTransition[A]]) extends StateTransition[A] {
-      override def orElse(other: StateTransition[A]): StateTransition[A] = new PartialFunctionStateTransition(pf.orElse(other.pf))
-    }
-
-    def apply[A](pf: PartialFunction[A, StateTransition[A]]): StateTransition[A] = new PartialFunctionStateTransition(pf)
-    def stay[A]: Stay[A] = Stay()
-  }
-
-  trait StateTransition[A] {
-    def pf: PartialFunction[A, StateTransition[A]]
-    def orElse(other: StateTransition[A]): StateTransition[A]
-  }
 
   def props()(implicit transactionLockSettings: RecordLockSettings): Props =
     Props(new RecordLocks())
