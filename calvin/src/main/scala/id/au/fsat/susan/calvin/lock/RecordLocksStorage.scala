@@ -1,12 +1,15 @@
 package id.au.fsat.susan.calvin.lock
 
-import akka.actor.ActorRef
+import akka.actor.{ Actor, ActorRef, Props }
 import akka.cluster.ddata.{ ORMap, ORMapKey }
 import id.au.fsat.susan.calvin.lock.RecordLocks.{ PendingRequest, RunningRequest }
 
 import scala.collection.immutable.Seq
 
 object RecordLocksStorage {
+  val Name = "record-locks-storage"
+
+  def props: Props = Props(new RecordLocksStorage)
 
   object DistributedData {
     //    val Key = ORMapKey[String, RecordLocksStorage]("record-locks")
@@ -33,6 +36,6 @@ object RecordLocksStorage {
 
 }
 
-class RecordLocksStorage {
-
+class RecordLocksStorage extends Actor {
+  override def receive: Receive = ???
 }

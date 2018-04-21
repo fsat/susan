@@ -3,6 +3,7 @@ package id.au.fsat.susan.calvin.lock
 import java.time.Instant
 import java.util.UUID
 
+import akka.actor.{ ActorRef, Props }
 import akka.testkit.TestProbe
 import id.au.fsat.susan.calvin.{ RecordId, UnitTest }
 import org.scalatest.{ FunSpec, Inside }
@@ -305,13 +306,31 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
     }
   }
 
+  describe("shutting down") {
+    it("terminates if the storage terminates") {
+      val f = testFixture()
+      import f._
+
+      val monitorTerminates = TestProbe()
+      monitorTerminates.watch(transactionLock)
+
+      actorSystem.stop(mockStorage.ref)
+
+      monitorTerminates.expectTerminated(transactionLock, 500.millis)
+    }
+  }
+
   private def testFixture(maxTimeoutObtain: FiniteDuration = maxTimeoutObtain, maxTimeoutReturn: FiniteDuration = maxTimeoutReturn,
     removeStaleLocksAfter: FiniteDuration = removeStaleLocksAfter, checkInterval: FiniteDuration = checkInterval, maxPendingRequests: Int = maxPendingRequests) = new {
     val timeoutObtain = 300.millis
     val timeoutReturn = 2000.millis
 
     implicit val transactionLockSettings = RecordLockSettings(maxTimeoutObtain, maxTimeoutReturn, removeStaleLocksAfter, checkInterval, maxPendingRequests)
-    val transactionLock = actorSystem.actorOf(RecordLocks.props())
+
+    val mockStorage = TestProbe()
+    val transactionLock = actorSystem.actorOf(Props(new RecordLocks() {
+      override protected def createRecordLocksStorage(): ActorRef = mockStorage.ref
+    }))
 
     val client1 = TestProbe()
     val client2 = TestProbe()
