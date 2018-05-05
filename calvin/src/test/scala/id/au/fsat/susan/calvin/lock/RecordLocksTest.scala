@@ -9,6 +9,7 @@ import id.au.fsat.susan.calvin.{ RecordId, UnitTest }
 import org.scalatest.{ FunSpec, Inside }
 
 import scala.concurrent.duration._
+import scala.collection.immutable.Seq
 
 class RecordLocksTest extends FunSpec with UnitTest with Inside {
   import RecordLocks._
@@ -19,11 +20,62 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
   val checkInterval = 100.millis
   val maxPendingRequests = 10
 
-  describe("obtaining transaction lock") {
+  describe("starting up") {
+    it("transitions to idle state") {
+      val f = testFixture()
+      import f._
+
+      client.send(transactionLock, GetState)
+      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
+
+      mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
+      mockStorage.reply(RecordLocksStorage.GetStateSuccess(IdleState, None, Seq.empty))
+
+      client.awaitAssert {
+        client.send(transactionLock, GetState)
+        client.expectMsg(GetStateSuccess(IdleState, None, Seq.empty))
+      }
+    }
+
+    it("transitions to pending lock obtained state, and then giving the locks to the client") {
+      val f = testFixture()
+      import f._
+
+      client.send(transactionLock, GetState)
+      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
+
+      mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
+
+      val requestId = RequestId(UUID.randomUUID())
+      val recordId = RecordId(1)
+      val request = LockGetRequest(requestId, recordId, timeoutObtain, timeoutReturn)
+      val lock = Lock(requestId, recordId, UUID.randomUUID(), Instant.now().minusSeconds(1), Instant.now().plusSeconds(5))
+      val runningRequest = RecordLocks.RunningRequest(client1.ref, request, createdAt = Instant.now().minusSeconds(1), lock)
+      mockStorage.reply(RecordLocksStorage.GetStateSuccess(PendingLockObtainedState, Some(runningRequest), Seq.empty))
+
+      val receivedLock = inside(client1.expectMsgType[LockGetSuccess]) {
+        case LockGetSuccess(v) => v
+      }
+
+      receivedLock shouldBe lock
+
+      client.awaitAssert {
+        client.send(transactionLock, GetState)
+        client.expectMsg(GetStateSuccess(LockedState, Some(runningRequest), Seq.empty))
+      }
+    }
+
+    it("transitions to the locked state")(pending)
+    it("transitions to the pending lock expired state, and then send the expired message to the caller")(pending)
+    it("transitions to the pending lock returned state, and then send the returned message to the caller")(pending)
+    it("transitions to the next pending request state")(pending)
+  }
+
+  describe("running") {
     describe("successful scenario") {
       describe("no existing lock") {
         it("obtains the lock") {
-          val f = testFixture()
+          val f = testFixtureWithIdleStateOnStartup()
           import f._
 
           val requestId = RequestId(UUID.randomUUID())
@@ -43,7 +95,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
         }
 
         it("allows locking from a different record as long as previous lock has been returned") {
-          val f = testFixture(maxTimeoutObtain = maxTimeoutObtain, maxTimeoutReturn = maxTimeoutReturn)
+          val f = testFixtureWithIdleStateOnStartup(maxTimeoutObtain = maxTimeoutObtain, maxTimeoutReturn = maxTimeoutReturn)
           import f._
 
           val requestId1 = RequestId(UUID.randomUUID())
@@ -75,9 +127,9 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
         }
       }
 
-      describe("existing lock in place") {
+      describe("existing locks in place") {
         it("waits for lock to be available for a particular record") {
-          val f = testFixture()
+          val f = testFixtureWithIdleStateOnStartup()
           import f._
 
           val requestId1 = RequestId(UUID.randomUUID())
@@ -107,14 +159,13 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client2.send(transactionLock, LockReturnRequest(lock2))
           client2.expectMsg(LockReturnSuccess(lock2))
         }
-
       }
     }
 
     describe("failure scenario") {
       describe("obtaining") {
         it("errors if the lock can't be obtained within specified timeout for a single record") {
-          val f = testFixture()
+          val f = testFixtureWithIdleStateOnStartup()
           import f._
 
           val requestId1 = RequestId(UUID.randomUUID())
@@ -140,7 +191,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
         }
 
         it("errors if the lock to one of the record can't be obtained within specified timeout") {
-          val f = testFixture()
+          val f = testFixtureWithIdleStateOnStartup()
           import f._
 
           val requestId1 = RequestId(UUID.randomUUID())
@@ -167,7 +218,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
         }
 
         it("errors if the lock obtain timeout exceeds allowable max") {
-          val f = testFixture()
+          val f = testFixtureWithIdleStateOnStartup()
           import f._
 
           val requestId = RequestId(UUID.randomUUID())
@@ -184,7 +235,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
         }
 
         it("errors if max pending requests is exceeded") {
-          val f = testFixture(maxPendingRequests = 1)
+          val f = testFixtureWithIdleStateOnStartup(maxPendingRequests = 1)
           import f._
 
           val requestId1 = RequestId(UUID.randomUUID())
@@ -217,7 +268,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
 
       describe("returning") {
         it("errors if the lock is returned after it expires") {
-          val f = testFixture()
+          val f = testFixtureWithIdleStateOnStartup()
           import f._
 
           val requestId = RequestId(UUID.randomUUID())
@@ -238,7 +289,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
         }
 
         it("errors if the lock return timeout exceeds allowable max") {
-          val f = testFixture()
+          val f = testFixtureWithIdleStateOnStartup()
           import f._
 
           val requestId = RequestId(UUID.randomUUID())
@@ -255,7 +306,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
         }
 
         it("errors when an unknown lock is returned") {
-          val f = testFixture()
+          val f = testFixtureWithIdleStateOnStartup()
           import f._
 
           val requestId = RequestId(UUID.randomUUID())
@@ -274,7 +325,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
 
       describe("lock expiry") {
         it("allows obtaining new lock to the same record held by the expired old lock") {
-          val f = testFixture()
+          val f = testFixtureWithIdleStateOnStartup()
           import f._
 
           val requestId1 = RequestId(UUID.randomUUID())
@@ -320,6 +371,18 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
     }
   }
 
+  private def testFixtureWithIdleStateOnStartup(maxTimeoutObtain: FiniteDuration = maxTimeoutObtain, maxTimeoutReturn: FiniteDuration = maxTimeoutReturn,
+    removeStaleLocksAfter: FiniteDuration = removeStaleLocksAfter, checkInterval: FiniteDuration = checkInterval, maxPendingRequests: Int = maxPendingRequests) = {
+    val fixture = testFixture(maxTimeoutObtain, maxTimeoutReturn, removeStaleLocksAfter, checkInterval, maxPendingRequests)
+
+    import fixture._
+
+    mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
+    mockStorage.reply(RecordLocksStorage.GetStateSuccess(IdleState, None, Seq.empty))
+
+    fixture
+  }
+
   private def testFixture(maxTimeoutObtain: FiniteDuration = maxTimeoutObtain, maxTimeoutReturn: FiniteDuration = maxTimeoutReturn,
     removeStaleLocksAfter: FiniteDuration = removeStaleLocksAfter, checkInterval: FiniteDuration = checkInterval, maxPendingRequests: Int = maxPendingRequests) = new {
     val timeoutObtain = 300.millis
@@ -332,6 +395,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       override protected def createRecordLocksStorage(): ActorRef = mockStorage.ref
     }))
 
+    val client = TestProbe()
     val client1 = TestProbe()
     val client2 = TestProbe()
   }
