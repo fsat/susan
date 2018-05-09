@@ -53,11 +53,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       val runningRequest = RecordLocks.RunningRequest(client1.ref, request, createdAt = Instant.now().minusSeconds(1), lock)
       mockStorage.reply(RecordLocksStorage.GetStateSuccess(PendingLockObtainedState, Some(runningRequest), Seq.empty))
 
-      val receivedLock = inside(client1.expectMsgType[LockGetSuccess]) {
-        case LockGetSuccess(v) => v
-      }
-
-      receivedLock shouldBe lock
+      client1.expectMsg(LockGetSuccess(lock))
 
       client.awaitAssert {
         client.send(transactionLock, GetState)
@@ -65,10 +61,109 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       }
     }
 
-    it("transitions to the locked state")(pending)
-    it("transitions to the pending lock expired state, and then send the expired message to the caller")(pending)
-    it("transitions to the pending lock returned state, and then send the returned message to the caller")(pending)
-    it("transitions to the next pending request state")(pending)
+    it("transitions to the locked state") {
+      val f = testFixture()
+      import f._
+
+      client.send(transactionLock, GetState)
+      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
+
+      mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
+
+      val requestId = RequestId(UUID.randomUUID())
+      val recordId = RecordId(1)
+      val request = LockGetRequest(requestId, recordId, timeoutObtain, timeoutReturn)
+      val lock = Lock(requestId, recordId, UUID.randomUUID(), Instant.now().minusSeconds(1), Instant.now().plusSeconds(5))
+      val runningRequest = RecordLocks.RunningRequest(client1.ref, request, createdAt = Instant.now().minusSeconds(1), lock)
+      mockStorage.reply(RecordLocksStorage.GetStateSuccess(LockedState, Some(runningRequest), Seq.empty))
+
+      client1.expectNoMessage(100.millis)
+
+      client1.send(transactionLock, LockReturnRequest(lock))
+      client1.expectMsg(LockReturnSuccess(lock))
+    }
+
+    it("transitions to the pending lock expired state, and then send the expired message to the caller") {
+      val f = testFixture()
+      import f._
+
+      client.send(transactionLock, GetState)
+      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
+
+      mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
+
+      val requestId = RequestId(UUID.randomUUID())
+      val recordId = RecordId(1)
+      val request = LockGetRequest(requestId, recordId, timeoutObtain, timeoutReturn)
+      val lock = Lock(requestId, recordId, UUID.randomUUID(), Instant.now().minusSeconds(1), Instant.now().plusSeconds(5))
+      val runningRequest = RecordLocks.RunningRequest(client1.ref, request, createdAt = Instant.now().minusSeconds(1), lock)
+      mockStorage.reply(RecordLocksStorage.GetStateSuccess(PendingLockExpiredState, Some(runningRequest), Seq.empty))
+
+      client1.expectMsg(LockExpired(lock))
+
+      client.awaitAssert {
+        client.send(transactionLock, GetState)
+        client.expectMsg(GetStateSuccess(IdleState, None, Seq.empty))
+      }
+    }
+
+    it("transitions to the pending lock returned state, and then send the returned message to the caller") {
+      val f = testFixture()
+      import f._
+
+      client.send(transactionLock, GetState)
+      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
+
+      mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
+
+      val requestId = RequestId(UUID.randomUUID())
+      val recordId = RecordId(1)
+      val request = LockGetRequest(requestId, recordId, timeoutObtain, timeoutReturn)
+      val lock = Lock(requestId, recordId, UUID.randomUUID(), Instant.now().minusSeconds(1), Instant.now().plusSeconds(5))
+      val runningRequest = RecordLocks.RunningRequest(client1.ref, request, createdAt = Instant.now().minusSeconds(1), lock)
+      mockStorage.reply(RecordLocksStorage.GetStateSuccess(PendingLockReturnedState, Some(runningRequest), Seq.empty))
+
+      client1.expectMsg(LockReturnSuccess(lock))
+
+      client.awaitAssert {
+        client.send(transactionLock, GetState)
+        client.expectMsg(GetStateSuccess(IdleState, None, Seq.empty))
+      }
+    }
+
+    it("transitions to the next pending request state") {
+      val f = testFixture()
+      import f._
+
+      client.send(transactionLock, GetState)
+      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
+
+      mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
+
+      val requestId = RequestId(UUID.randomUUID())
+      val recordId = RecordId(1)
+      val request = LockGetRequest(requestId, recordId, timeoutObtain, timeoutReturn)
+      val pendingRequest = RecordLocks.PendingRequest(client1.ref, request, createdAt = Instant.now())
+      mockStorage.reply(RecordLocksStorage.GetStateSuccess(NextPendingRequestState, None, Seq(pendingRequest)))
+
+      val lock = inside(client1.expectMsgType[LockGetSuccess]) {
+        case LockGetSuccess(l @ Lock(`requestId`, `recordId`, _, created, timeout)) =>
+          created.plusNanos(timeoutReturn.toNanos) shouldBe timeout
+          l
+      }
+
+      client.awaitAssert {
+        client.send(transactionLock, GetState)
+        inside(client.expectMsgType[GetStateSuccess]) {
+          case GetStateSuccess(LockedState, Some(runningRequest), Seq()) =>
+            runningRequest.caller shouldBe client1.ref
+            runningRequest.request shouldBe request
+            runningRequest.lock shouldBe lock
+        }
+      }
+    }
+
+    it("queues the incoming request while loading takes place")(pending)
   }
 
   describe("running") {
