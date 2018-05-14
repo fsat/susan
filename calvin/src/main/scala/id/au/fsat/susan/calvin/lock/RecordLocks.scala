@@ -538,6 +538,12 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
     persistState(state, Some(runningRequest), pendingRequests)(nextState)
 
   private def persistState(state: RecordLocksState, runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest])(nextState: => StateTransition[RequestMessage]): StateTransition[RequestMessage] = {
+    // TODO: not sure if persisting pending requests is a good idea
+    // We need to persist running request to prevent:
+    // - False positive, i.e. thinking transaction is successful while it's actually not
+    // - Committed, unreplied transaction
+    // But we don't need to persist pending request?
+    //storage ! RecordLocksStorage.UpdateStateRequest(from = self, state, runningRequest, pendingRequests)
     nextState
   }
 }
