@@ -515,6 +515,61 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
     it("works during pending lock returned state")(pending)
   }
 
+  describe("max pending request is reached") {
+    it(s"drops request during loading state") {
+      val f = testFixture(maxPendingRequests = 1)
+      import f._
+
+      mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
+
+      // Send a request
+      val request1IdPending = RequestId(UUID.randomUUID())
+      val record1IdPending = RecordId(10)
+      val request1 = LockGetRequest(request1IdPending, record1IdPending, maxTimeoutObtain, timeoutReturn)
+
+      client1.send(transactionLock, request1)
+
+      val request2IdPending = RequestId(UUID.randomUUID())
+      val record2IdPending = RecordId(11)
+      val request2 = LockGetRequest(request2IdPending, record2IdPending, maxTimeoutObtain, timeoutReturn)
+
+      client2.send(transactionLock, request2)
+      client2.expectMsg(LockGetRequestDropped(request2))
+    }
+
+    Seq(
+      "pending lock obtained" -> PendingLockObtainedState,
+      "locked" -> LockedState,
+      "pending lock expired" -> PendingLockExpiredState,
+      "pending lock returned" -> PendingLockReturnedState).foreach {
+        case (scenario, state) =>
+          it(s"drops request during $scenario state") {
+            val f = testFixture(maxPendingRequests = 1)
+            import f._
+
+            val requestId = RequestId(UUID.randomUUID())
+            val recordId = RecordId(1123)
+            val request = LockGetRequest(requestId, recordId, timeoutObtain, timeoutReturn)
+            val lock = Lock(requestId, recordId, UUID.randomUUID(), Instant.now().minusSeconds(1), Instant.now().plusSeconds(5))
+            val runningRequest = Option(RecordLocks.RunningRequest(TestProbe().ref, request, createdAt = lock.createdAt, lock))
+
+            val requestIdPending = RequestId(UUID.randomUUID())
+            val recordIdPending = RecordId(10)
+            val requestPending = PendingRequest(client1.ref, LockGetRequest(requestIdPending, recordIdPending, maxTimeoutObtain, maxTimeoutReturn), createdAt = Instant.now())
+
+            mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
+            mockStorage.reply(RecordLocksStorage.GetStateSuccess(state, runningRequest, Seq(requestPending)))
+
+            val requestIdToReject = RequestId(UUID.randomUUID())
+            val recordIdToReject = RecordId(12)
+            val requestToReject = LockGetRequest(requestIdToReject, recordIdToReject, maxTimeoutObtain, maxTimeoutReturn)
+
+            client2.send(transactionLock, requestToReject)
+            client2.expectMsg(LockGetRequestDropped(requestToReject))
+          }
+      }
+  }
+
   describe("shutting down") {
     it("terminates if the storage terminates") {
       val f = testFixture()
@@ -556,5 +611,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
     val client = TestProbe()
     val client1 = TestProbe()
     val client2 = TestProbe()
+
   }
+
 }
