@@ -463,20 +463,12 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       // Send a request
       val requestIdPending = RequestId(UUID.randomUUID())
       val recordIdPending = RecordId(10)
-
       client1.send(transactionLock, LockGetRequest(requestIdPending, recordIdPending, timeoutObtain, timeoutReturn))
 
-      val requestId = RequestId(UUID.randomUUID())
-      val recordId = RecordId(1)
-      val request = LockGetRequest(requestId, recordId, timeoutObtain, timeoutReturn)
-      val lock = Lock(requestId, recordId, UUID.randomUUID(), Instant.now().minusSeconds(1), Instant.now().plusSeconds(5))
-      val runningRequest = RecordLocks.RunningRequest(client1.ref, request, createdAt = Instant.now().minusSeconds(1), lock)
-      mockStorage.reply(RecordLocksStorage.GetStateSuccess(LockedState, Some(runningRequest), Seq.empty))
-
-      client1.awaitAssert {
+      client.awaitAssert {
         client.send(transactionLock, GetState)
         inside(client.expectMsgType[GetStateSuccess]) {
-          case GetStateSuccess(LockedState, Some(`runningRequest`), Seq(pendingRequest)) =>
+          case GetStateSuccess(LoadingState, None, Seq(pendingRequest)) =>
             pendingRequest.request.requestId shouldBe requestIdPending
             pendingRequest.request.recordId shouldBe recordIdPending
             pendingRequest.caller shouldBe client1.ref
@@ -484,14 +476,54 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       }
     }
 
-    it("works during pending locked state")(pending)
-    it("works during locked state")(pending)
-    it("works during pending lock expired state")(pending)
-    it("works during pending lock returned state")(pending)
+    Seq(
+      "pending lock obtained" -> PendingLockObtainedState,
+      "locked" -> LockedState,
+      "pending lock expired" -> PendingLockExpiredState,
+      "pending lock returned" -> PendingLockReturnedState).foreach {
+        case (scenario, state) =>
+          it(s"works during $scenario state") {
+            val f = testFixture(maxPendingRequests = 1)
+            import f._
+
+            val requestId = RequestId(UUID.randomUUID())
+            val recordId = RecordId(1123)
+            val request = LockGetRequest(requestId, recordId, timeoutObtain, 3.minutes)
+            val lock = Lock(requestId, recordId, UUID.randomUUID(), Instant.now().minusSeconds(1), Instant.now().plusSeconds(5))
+            val runningRequest = Option(RecordLocks.RunningRequest(TestProbe().ref, request, createdAt = lock.createdAt, lock))
+
+            mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
+            mockStorage.reply(RecordLocksStorage.GetStateSuccess(state, runningRequest, Seq.empty))
+
+            client.awaitAssert {
+              client.send(transactionLock, GetState)
+              inside(client.expectMsgType[GetStateSuccess]) {
+                case GetStateSuccess(_, _, Seq()) =>
+              }
+            }
+
+            val requestIdToEnqueue = RequestId(UUID.randomUUID())
+            val recordIdToEnqueue = RecordId(12)
+            // Force request to expire by negating the timeout to obtain
+            val requestToEnqueue = LockGetRequest(requestIdToEnqueue, recordIdToEnqueue, maxTimeoutObtain, maxTimeoutReturn)
+
+            client2.send(transactionLock, requestToEnqueue)
+
+            client.awaitAssert {
+              client.send(transactionLock, GetState)
+              inside(client.expectMsgType[GetStateSuccess]) {
+                case GetStateSuccess(_, _, Seq(pendingRequest)) =>
+                  pendingRequest.request shouldBe requestToEnqueue
+                  pendingRequest.caller shouldBe client2.ref
+              }
+            }
+
+          }
+      }
   }
 
-  describe("timing out stale request") {
-    it("works during loading state") {
+  describe("stale pending request") {
+    it("is timed out during loading state") {
       val f = testFixture()
       import f._
 
@@ -509,10 +541,49 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       client1.expectMsg(LockGetTimeout(request))
     }
 
-    it("works during pending locked state")(pending)
-    it("works during locked state")(pending)
-    it("works during pending lock expired state")(pending)
-    it("works during pending lock returned state")(pending)
+    Seq(
+      "pending lock obtained" -> PendingLockObtainedState,
+      "locked" -> LockedState,
+      "pending lock expired" -> PendingLockExpiredState,
+      "pending lock returned" -> PendingLockReturnedState).foreach {
+        case (scenario, state) =>
+          it(s"is timed out during $scenario state") {
+            val f = testFixture(maxPendingRequests = 1)
+            import f._
+
+            val requestId = RequestId(UUID.randomUUID())
+            val recordId = RecordId(1123)
+            val request = LockGetRequest(requestId, recordId, timeoutObtain, 3.minutes)
+            val lock = Lock(requestId, recordId, UUID.randomUUID(), Instant.now().minusSeconds(1), Instant.now().plusSeconds(5))
+            val runningRequest = Option(RecordLocks.RunningRequest(TestProbe().ref, request, createdAt = lock.createdAt, lock))
+
+            val requestIdPending = RequestId(UUID.randomUUID())
+            val recordIdPending = RecordId(10)
+            val requestPending = PendingRequest(client1.ref, LockGetRequest(requestIdPending, recordIdPending, 100.millis, maxTimeoutReturn), createdAt = Instant.now().minusSeconds(60))
+
+            mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
+            mockStorage.reply(RecordLocksStorage.GetStateSuccess(state, runningRequest, Seq(requestPending)))
+
+            // Hold the lock until all clients are dropped
+
+            client1.expectMsg(LockGetTimeout(requestPending.request))
+
+            // We can only test expiring pending request from the incoming lock get request only during
+            // PendingLockObtainedState and LockedState as we can hold the lock until expiry is reached.
+            // Sending lock get request in the PendingLockExpiredSate and PendingLockReturnedState will cause
+            // the request to be accepted immediately
+            if (state == PendingLockObtainedState || state == LockedState) {
+
+              val requestIdToExpire = RequestId(UUID.randomUUID())
+              val recordIdToExpire = RecordId(12)
+              // Force request to expire by negating the timeout to obtain
+              val requestToExpire = LockGetRequest(requestIdToExpire, recordIdToExpire, maxTimeoutObtain, maxTimeoutReturn)
+
+              client2.send(transactionLock, requestToExpire)
+              client2.expectMsg(LockGetTimeout(requestToExpire))
+            }
+          }
+      }
   }
 
   describe("max pending request is reached") {
@@ -544,7 +615,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       "pending lock returned" -> PendingLockReturnedState).foreach {
         case (scenario, state) =>
           it(s"drops request during $scenario state") {
-            val f = testFixture(maxPendingRequests = 1)
+            val f = testFixture(maxPendingRequests = 1, maxTimeoutReturn = 3.minutes)
             import f._
 
             val requestId = RequestId(UUID.randomUUID())
