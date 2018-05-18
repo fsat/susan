@@ -173,8 +173,19 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
 
           val requestId = RequestId(UUID.randomUUID())
           val recordId = RecordId(1)
+          val request = LockGetRequest(requestId, recordId, timeoutObtain, timeoutReturn)
 
-          client1.send(transactionLock, LockGetRequest(requestId, recordId, timeoutObtain, timeoutReturn))
+          client1.send(transactionLock, request)
+
+          val (runningRequest, pendingRequests) = mockStorage.expectMsgPF() {
+            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+              r.caller shouldBe client1.ref
+              r.request shouldBe request
+              r -> p
+          }
+
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest), pendingRequests))
+
           val lock = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId`, `recordId`, _, createdAt, returnDeadline)) =>
               createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
@@ -193,8 +204,20 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
 
           val requestId1 = RequestId(UUID.randomUUID())
           val record1 = RecordId(1)
+          val request = LockGetRequest(requestId1, record1, timeoutObtain, timeoutReturn)
 
-          client1.send(transactionLock, LockGetRequest(requestId1, record1, timeoutObtain, timeoutReturn))
+          client1.send(transactionLock, request)
+
+          val (runningRequest, pendingRequests) = mockStorage.expectMsgPF() {
+            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+              r.caller shouldBe client1.ref
+              r.request shouldBe request
+              r -> p
+
+          }
+
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest), pendingRequests))
+
           val lock1 = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `record1`, _, createdAt, returnDeadline)) =>
               createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
@@ -203,11 +226,25 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
 
           val requestId2 = RequestId(UUID.randomUUID())
           val record2 = RecordId(2)
+          val request2 = LockGetRequest(requestId2, record2, maxTimeoutObtain, timeoutReturn)
 
-          client2.send(transactionLock, LockGetRequest(requestId2, record2, maxTimeoutObtain, timeoutReturn))
+          client2.send(transactionLock, request2)
 
           client1.send(transactionLock, LockReturnRequest(lock1))
           client1.expectMsg(LockReturnSuccess(lock1))
+
+          val (runningRequest2, pendingRequests2) = mockStorage.expectMsgPF() {
+            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+              r.caller shouldBe client2.ref
+              r.request shouldBe request2
+              r -> p
+
+            case v =>
+              println(v)
+              fail()
+          }
+
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest2), pendingRequests2))
 
           val lock2 = inside(client2.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId2`, `record2`, _, createdAt, returnDeadline)) =>
