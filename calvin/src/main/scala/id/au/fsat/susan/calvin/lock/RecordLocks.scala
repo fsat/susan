@@ -140,6 +140,8 @@ object RecordLocks {
   case class UnsubscribeRequest(ref: ActorRef) extends RequestMessage
   case object UnsubscribeSuccess extends ResponseMessage
 
+  case class StateChanged(state: RecordLocksState, runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest]) extends ResponseMessage
+
   /**
    * Represents a pending request for transaction lock
    */
@@ -600,5 +602,10 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
     // We don't persist pending requests for now to keep things simple for now
     //storage ! RecordLocksStorage.UpdateStateRequest(from = self, state, runningRequest)
     nextState
+  }
+
+  private def notifySubscribers(state: RecordLocksState, runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest], subscribers: Set[ActorRef]): Unit = {
+    val notify = StateChanged(state, runningRequest, pendingRequests)
+    subscribers.foreach(_ ! notify)
   }
 }
