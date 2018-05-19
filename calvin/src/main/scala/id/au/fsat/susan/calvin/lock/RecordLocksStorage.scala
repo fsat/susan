@@ -28,8 +28,8 @@ object RecordLocksStorage {
   case class GetStateSuccess(state: RecordLocksState, runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest]) extends ResponseMessage
   case class GetStateFailure(request: GetStateRequest, message: String, error: Option[Throwable]) extends FailureMessage with ResponseMessage
 
-  case class UpdateStateRequest(from: ActorRef, state: RecordLocksState, runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest]) extends RequestMessage
-  case class UpdateStateSuccess(state: RecordLocksState, runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest]) extends ResponseMessage
+  case class UpdateStateRequest(from: ActorRef, state: RecordLocksState, runningRequest: Option[RunningRequest]) extends RequestMessage
+  case class UpdateStateSuccess(state: RecordLocksState, runningRequest: Option[RunningRequest]) extends ResponseMessage
   case class UpdateStateFailure(request: UpdateStateRequest, message: String, error: Option[Throwable]) extends FailureMessage with ResponseMessage
 
 }
