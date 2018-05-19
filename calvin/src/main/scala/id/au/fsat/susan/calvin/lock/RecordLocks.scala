@@ -267,8 +267,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           val runningRequest = RunningRequest(sender, request, Instant.now(), lock)
 
           // TODO: move this into persistState
-          storage ! RecordLocksStorage.UpdateStateRequest(self, PendingLockObtainedState, Some(runningRequest), Seq.empty)
-          persistState(PendingLockObtainedState)(pendingLockObtained(runningRequest, Seq.empty))
+          storage ! RecordLocksStorage.UpdateStateRequest(self, LockedState, Some(runningRequest), Seq.empty)
+          persistState(LockedState)(pendingLockObtained(runningRequest, Seq.empty))
 
         case ProcessPendingRequests =>
           // Nothing to do, everything clear
@@ -289,7 +289,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       .orElse(appendLockGetRequestToPending(PendingLockObtainedState, runningRequest, pendingRequests, persist = true)(pendingLockObtained(runningRequest, _)))
       .orElse(dropStalePendingRequests(PendingLockObtainedState, runningRequest, pendingRequests, persist = true)(pendingLockObtained(runningRequest, _)))
       .orElse(StateTransition {
-        case RecordLocksStorageMessageWrapper(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(`runningRequest`), _)) =>
+        case RecordLocksStorageMessageWrapper(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(`runningRequest`), _)) =>
           runningRequest.caller ! LockGetSuccess(runningRequest.lock)
           locked(runningRequest, pendingRequests)
       })
@@ -302,10 +302,6 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           StateTransition.stay
 
         case Tick =>
-          // TODO: wait for reply that state have been saved
-          // TODO: cancel running requests if timed out
-          //runningRequest.caller ! LockGetSuccess(runningRequest.lock)
-          //persistState(LockedState, runningRequest, pendingRequests)(locked(runningRequest, pendingRequests))
           StateTransition.stay
       })
       .orElse(StateTransition {
@@ -447,8 +443,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           val runningRequest = RunningRequest(pendingRequest.caller, pendingRequest.request, pendingRequest.createdAt, lock)
 
           // TODO: move this into persistState
-          storage ! RecordLocksStorage.UpdateStateRequest(self, PendingLockObtainedState, Some(runningRequest), pendingRequestsAlive.tail)
-          persistState(PendingLockObtainedState, runningRequest, pendingRequestsAlive.tail)(pendingLockObtained(runningRequest, pendingRequestsAlive.tail))
+          storage ! RecordLocksStorage.UpdateStateRequest(self, LockedState, Some(runningRequest), pendingRequestsAlive.tail)
+          persistState(LockedState, runningRequest, pendingRequestsAlive.tail)(pendingLockObtained(runningRequest, pendingRequestsAlive.tail))
         }
       })
       .orElse(StateTransition {

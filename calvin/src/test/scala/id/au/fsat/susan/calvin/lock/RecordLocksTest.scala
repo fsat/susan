@@ -147,14 +147,14 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       mockStorage.reply(RecordLocksStorage.GetStateSuccess(NextPendingRequestState, None, Seq(pendingRequest)))
 
       val (runningRequest1, pendingRequests1) = mockStorage.expectMsgPF() {
-        case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+        case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r), p) =>
           r.caller shouldBe client1.ref
           r.request shouldBe request
           r -> p
 
       }
 
-      mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest1), pendingRequests1))
+      mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest1), pendingRequests1))
 
       val lock = inside(client1.expectMsgType[LockGetSuccess]) {
         case LockGetSuccess(l @ Lock(`requestId`, `recordId`, _, created, timeout)) =>
@@ -188,13 +188,13 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, request)
 
           val (runningRequest, pendingRequests) = mockStorage.expectMsgPF() {
-            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r), p) =>
               r.caller shouldBe client1.ref
               r.request shouldBe request
               r -> p
           }
 
-          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest), pendingRequests))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest), pendingRequests))
 
           val lock = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId`, `recordId`, _, createdAt, returnDeadline)) =>
@@ -219,14 +219,14 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, request)
 
           val (runningRequest, pendingRequests) = mockStorage.expectMsgPF() {
-            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r), p) =>
               r.caller shouldBe client1.ref
               r.request shouldBe request
               r -> p
 
           }
 
-          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest), pendingRequests))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest), pendingRequests))
 
           val lock1 = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `record1`, _, createdAt, returnDeadline)) =>
@@ -244,17 +244,13 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client1.expectMsg(LockReturnSuccess(lock1))
 
           val (runningRequest2, pendingRequests2) = mockStorage.expectMsgPF() {
-            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r), p) =>
               r.caller shouldBe client2.ref
               r.request shouldBe request2
               r -> p
-
-            case v =>
-              println(v)
-              fail()
           }
 
-          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest2), pendingRequests2))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest2), pendingRequests2))
 
           val lock2 = inside(client2.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId2`, `record2`, _, createdAt, returnDeadline)) =>
@@ -279,14 +275,14 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, request1)
 
           val (runningRequest1, pendingRequests1) = mockStorage.expectMsgPF() {
-            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r), p) =>
               r.caller shouldBe client1.ref
               r.request shouldBe request1
               r -> p
 
           }
 
-          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest1), pendingRequests1))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest1), pendingRequests1))
 
           val lock1 = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `record`, _, createdAt, returnDeadline)) =>
@@ -304,14 +300,14 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client1.expectMsg(LockReturnSuccess(lock1))
 
           val (runningRequest2, pendingRequests2) = mockStorage.expectMsgPF() {
-            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r), p) =>
               r.caller shouldBe client2.ref
               r.request shouldBe request2
               r -> p
 
           }
 
-          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest2), pendingRequests2))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest2), pendingRequests2))
 
           val lock2 = inside(client2.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId2`, `record`, _, createdAt, returnDeadline)) =>
@@ -338,13 +334,13 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, request)
 
           val (runningRequest, pendingRequests) = mockStorage.expectMsgPF() {
-            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r), p) =>
               r.caller shouldBe client1.ref
               r.request shouldBe request
               r -> p
           }
 
-          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest), pendingRequests))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest), pendingRequests))
 
           val lock1 = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `record`, _, createdAt, returnDeadline)) =>
@@ -392,13 +388,13 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, request1)
 
           val (runningRequest, pendingRequests) = mockStorage.expectMsgPF() {
-            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r), p) =>
               r.caller shouldBe client1.ref
               r.request shouldBe request1
               r -> p
           }
 
-          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest), pendingRequests))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest), pendingRequests))
 
           inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `record`, _, createdAt, returnDeadline)) =>
@@ -436,13 +432,13 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, request)
 
           val (runningRequest, pendingRequests) = mockStorage.expectMsgPF() {
-            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r), p) =>
               r.caller shouldBe client1.ref
               r.request shouldBe request
               r -> p
           }
 
-          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest), pendingRequests))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest), pendingRequests))
 
           val lock = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId`, `record`, _, createdAt, returnDeadline)) =>
@@ -503,13 +499,13 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client1.send(transactionLock, request1)
 
           val (runningRequest1, pendingRequests1) = mockStorage.expectMsgPF() {
-            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r), p) =>
               r.caller shouldBe client1.ref
               r.request shouldBe request1
               r -> p
           }
 
-          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest1), pendingRequests1))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest1), pendingRequests1))
 
           val lock1 = inside(client1.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId1`, `record`, _, createdAt, returnDeadline)) =>
@@ -528,13 +524,13 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client2.send(transactionLock, request2)
 
           val (runningRequest2, pendingRequests2) = mockStorage.expectMsgPF() {
-            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockObtainedState, Some(r), p) =>
+            case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r), p) =>
               r.caller shouldBe client2.ref
               r.request shouldBe request2
               r -> p
           }
 
-          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockObtainedState, Some(runningRequest2), pendingRequests2))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest2), pendingRequests2))
 
           inside(client2.expectMsgType[LockGetSuccess]) {
             case LockGetSuccess(lock @ Lock(`requestId2`, `record`, _, createdAt, returnDeadline)) =>
