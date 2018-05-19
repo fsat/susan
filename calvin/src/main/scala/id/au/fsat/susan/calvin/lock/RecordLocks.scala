@@ -220,9 +220,14 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             }
 
           state match {
-            case LoadingState             => nextPendingRequestOrIdle()
-            case IdleState                => idle()
-            case PendingLockObtainedState => withRunningRequestPresent(pendingLockObtained(_, pendingRequestsAll))
+            case LoadingState => nextPendingRequestOrIdle()
+            case IdleState    => idle()
+            case PendingLockObtainedState =>
+              // Continue to locked state
+              withRunningRequestPresent { runningRequest =>
+                runningRequest.caller ! LockGetSuccess(runningRequest.lock)
+                locked(runningRequest, pendingRequestsAll)
+              }
             case LockedState              => withRunningRequestPresent(locked(_, pendingRequestsAll))
             case PendingLockExpiredState  => withRunningRequestPresent(pendingLockExpired(_, pendingRequestsAll))
             case PendingLockReturnedState => withRunningRequestPresent(pendingLockReturned(_, pendingRequestsAll))
