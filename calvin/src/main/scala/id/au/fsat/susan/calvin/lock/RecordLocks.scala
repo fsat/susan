@@ -198,6 +198,15 @@ object RecordLocks {
     def +(subscriber: ActorRef): PendingLockObtainedStateData = copy(subscribers = subscribers + subscriber)
     def -(subscriber: ActorRef): PendingLockObtainedStateData = copy(subscribers = subscribers.filterNot(_ == subscriber))
   }
+
+  case class LockedStateData(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest], subscribers: Set[ActorRef]) extends RecordLocksStateData {
+    val state: RecordLocksState = LockedState
+    val runningRequestOpt: Option[RunningRequest] = Some(runningRequest)
+
+    def set(input: Seq[PendingRequest]): LockedStateData = copy(pendingRequests = input)
+    def +(subscriber: ActorRef): LockedStateData = copy(subscribers = subscribers + subscriber)
+    def -(subscriber: ActorRef): LockedStateData = copy(subscribers = subscribers.filterNot(_ == subscriber))
+  }
 }
 
 /**
@@ -380,13 +389,16 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       })
 
   private def locked(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest], subscribers: Set[ActorRef]): StateTransition[RequestMessage] =
+    locked(LockedStateData(runningRequest, pendingRequests, subscribers))
+
+  private def locked(implicit stateData: LockedStateData): StateTransition[RequestMessage] =
     rejectInvalidLockGetRequest
-      .orElse(appendLockGetRequestToPending(runningRequest, pendingRequests)(locked(runningRequest, _, subscribers)))
-      .orElse(dropStalePendingRequests(runningRequest, pendingRequests)(locked(runningRequest, _, subscribers)))
+      .orElse(appendLockGetRequestToPending(v => locked(stateData.set(v))))
+      .orElse(dropStalePendingRequests(v => locked(stateData.set(v))))
       .orElse(StateTransition {
-        case LockReturnRequest(lock) if lock == runningRequest.lock =>
+        case LockReturnRequest(lock) if lock == stateData.runningRequest.lock =>
           // TODO: persist lock returned + pending requests into state
-          persistState(LockedState, runningRequest)(pendingLockReturned(runningRequest, pendingRequests, subscribers))
+          persistState(LockedState, stateData.runningRequest)(pendingLockReturned(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers))
 
         case LockReturnRequest(lock) =>
           sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
@@ -400,24 +412,24 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             now.isAfter(deadline)
           }
 
-          if (isExpired(runningRequest))
+          if (isExpired(stateData.runningRequest))
             // TODO: persist lock expired + pending requests into state
-            persistState(PendingLockExpiredState, runningRequest)(pendingLockExpired(runningRequest, pendingRequests, subscribers))
+            persistState(PendingLockExpiredState, stateData.runningRequest)(pendingLockExpired(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers))
           else
             StateTransition.stay
       })
       .orElse(StateTransition {
         case SubscribeRequest(ref) =>
           ref ! SubscribeSuccess
-          locked(runningRequest, pendingRequests, subscribers + ref)
+          locked(stateData + ref)
 
         case UnsubscribeRequest(ref) =>
           ref ! UnsubscribeSuccess
-          locked(runningRequest, pendingRequests, subscribers.filterNot(_ == ref))
+          locked(stateData - ref)
       })
       .orElse(StateTransition {
         case GetState =>
-          sender() ! GetStateSuccess(LockedState, Some(runningRequest), pendingRequests)
+          sender() ! GetStateSuccess(LockedState, Some(stateData.runningRequest), stateData.pendingRequests)
           StateTransition.stay
       })
 
