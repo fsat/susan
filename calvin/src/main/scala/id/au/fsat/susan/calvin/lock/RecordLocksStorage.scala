@@ -2,7 +2,7 @@ package id.au.fsat.susan.calvin.lock
 
 import akka.actor.{ Actor, ActorRef, Props }
 import akka.cluster.ddata.{ ORMap, ORMapKey }
-import id.au.fsat.susan.calvin.lock.RecordLocks.{ PendingRequest, PersistableRecordLocksState, RecordLocksState, RunningRequest }
+import id.au.fsat.susan.calvin.lock.RecordLocks.{ PendingRequest, RecordLocksStateToPersist, RecordLocksState, RunningRequest }
 
 import scala.collection.immutable.Seq
 
@@ -25,11 +25,11 @@ object RecordLocksStorage {
   sealed trait FailureMessage extends Exception with Message
 
   case class GetStateRequest(from: ActorRef) extends RequestMessage
-  case class GetStateSuccess(state: PersistableRecordLocksState, runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest]) extends ResponseMessage
+  case class GetStateSuccess(state: RecordLocksStateToPersist, runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest]) extends ResponseMessage
   case class GetStateFailure(request: GetStateRequest, message: String, error: Option[Throwable]) extends FailureMessage with ResponseMessage
 
-  case class UpdateStateRequest(from: ActorRef, state: PersistableRecordLocksState, runningRequest: Option[RunningRequest]) extends RequestMessage
-  case class UpdateStateSuccess(state: PersistableRecordLocksState, runningRequest: Option[RunningRequest]) extends ResponseMessage
+  case class UpdateStateRequest(from: ActorRef, state: RecordLocksStateToPersist, runningRequest: Option[RunningRequest]) extends RequestMessage
+  case class UpdateStateSuccess(state: RecordLocksStateToPersist, runningRequest: Option[RunningRequest]) extends ResponseMessage
   case class UpdateStateFailure(request: UpdateStateRequest, message: String, error: Option[Throwable]) extends FailureMessage with ResponseMessage
 
 }
