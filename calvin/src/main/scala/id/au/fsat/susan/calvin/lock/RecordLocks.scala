@@ -586,60 +586,47 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
     }
 
   private def appendLockGetRequestToPending(nextState: Seq[PendingRequest] => StateTransition[RequestMessage])(implicit stateData: RecordLocksStateData): StateTransition[RequestMessage] =
-    appendLockGetRequestToPending(stateData.runningRequestOpt, stateData.pendingRequests)(nextState)
+    StateTransition {
+      case v: LockGetRequest =>
+        import stateData.pendingRequests
 
-  private def appendLockGetRequestToPending(pendingRequests: Seq[PendingRequest])(nextState: Seq[PendingRequest] => StateTransition[RequestMessage]): StateTransition[RequestMessage] =
-    appendLockGetRequestToPending(None, pendingRequests)(nextState)
-
-  private def appendLockGetRequestToPending(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest])(nextState: Seq[PendingRequest] => StateTransition[RequestMessage]): StateTransition[RequestMessage] =
-    appendLockGetRequestToPending(Some(runningRequest), pendingRequests)(nextState)
-
-  private def appendLockGetRequestToPending(runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest])(nextState: Seq[PendingRequest] => StateTransition[RequestMessage]): StateTransition[RequestMessage] = StateTransition {
-    case v: LockGetRequest =>
-      nextState(pendingRequests :+ PendingRequest(sender(), v, Instant.now()))
-  }
+        nextState(pendingRequests :+ PendingRequest(sender(), v, Instant.now()))
+    }
 
   private def dropStalePendingRequests(nextState: Seq[PendingRequest] => StateTransition[RequestMessage])(implicit stateData: RecordLocksStateData): StateTransition[RequestMessage] =
-    dropStalePendingRequests(stateData.runningRequestOpt, stateData.pendingRequests)(nextState)
+    StateTransition {
+      case ProcessPendingRequests =>
+        import stateData.pendingRequests
 
-  private def dropStalePendingRequests(pendingRequests: Seq[PendingRequest])(nextState: Seq[PendingRequest] => StateTransition[RequestMessage]): StateTransition[RequestMessage] =
-    dropStalePendingRequests(None, pendingRequests)(nextState)
+        def filterExpired(now: Instant, pendingRequests: Seq[PendingRequest]): (Seq[PendingRequest], Seq[PendingRequest], Seq[PendingRequest]) = {
+          def timedOut(input: PendingRequest): Boolean = {
+            val deadline = input.createdAt.plusNanos(input.request.timeoutObtain.toNanos)
+            now.isAfter(deadline)
+          }
 
-  private def dropStalePendingRequests(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest])(nextState: Seq[PendingRequest] => StateTransition[RequestMessage]): StateTransition[RequestMessage] =
-    dropStalePendingRequests(Some(runningRequest), pendingRequests)(nextState)
+          val pendingTimedOut = pendingRequests.filter(timedOut)
+          val pendingAlive = pendingRequests.filterNot(timedOut)
 
-  private def dropStalePendingRequests(runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest])(nextState: Seq[PendingRequest] => StateTransition[RequestMessage]): StateTransition[RequestMessage] = StateTransition {
-    case ProcessPendingRequests =>
+          val pendingAliveSorted = pendingAlive.sortBy(_.createdAt)
+          val pendingAliveKept = pendingAliveSorted.take(maxPendingRequests)
+          val pendingAliveDropped = pendingAliveSorted.takeRight(pendingAliveSorted.length - maxPendingRequests)
 
-      def filterExpired(now: Instant, pendingRequests: Seq[PendingRequest]): (Seq[PendingRequest], Seq[PendingRequest], Seq[PendingRequest]) = {
-        def timedOut(input: PendingRequest): Boolean = {
-          val deadline = input.createdAt.plusNanos(input.request.timeoutObtain.toNanos)
-          now.isAfter(deadline)
+          (pendingTimedOut, pendingAliveKept, pendingAliveDropped)
         }
 
-        val pendingTimedOut = pendingRequests.filter(timedOut)
-        val pendingAlive = pendingRequests.filterNot(timedOut)
+        val now = Instant.now()
+        val (pendingTimedOut, pendingAliveKept, pendingAliveDropped) = filterExpired(now, pendingRequests)
 
-        val pendingAliveSorted = pendingAlive.sortBy(_.createdAt)
-        val pendingAliveKept = pendingAliveSorted.take(maxPendingRequests)
-        val pendingAliveDropped = pendingAliveSorted.takeRight(pendingAliveSorted.length - maxPendingRequests)
+        pendingTimedOut.foreach { v =>
+          v.caller ! LockGetTimeout(v.request)
+        }
 
-        (pendingTimedOut, pendingAliveKept, pendingAliveDropped)
-      }
+        pendingAliveDropped.foreach { v =>
+          v.caller ! LockGetRequestDropped(v.request)
+        }
 
-      val now = Instant.now()
-      val (pendingTimedOut, pendingAliveKept, pendingAliveDropped) = filterExpired(now, pendingRequests)
-
-      pendingTimedOut.foreach { v =>
-        v.caller ! LockGetTimeout(v.request)
-      }
-
-      pendingAliveDropped.foreach { v =>
-        v.caller ! LockGetRequestDropped(v.request)
-      }
-
-      nextState(pendingAliveKept)
-  }
+        nextState(pendingAliveKept)
+    }
 
   private def persistState(state: RecordLocksStateToPersist)(nextState: => StateTransition[RequestMessage]): StateTransition[RequestMessage] =
     persistState(state, None)(nextState)
