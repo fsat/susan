@@ -37,30 +37,6 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       }
     }
 
-    it("transitions to pending lock obtained state, continues to locked state, and then giving the locks to the client") {
-      val f = testFixture()
-      import f._
-
-      client.send(transactionLock, GetState)
-      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
-
-      mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
-
-      val requestId = RequestId(UUID.randomUUID())
-      val recordId = RecordId(1)
-      val request = LockGetRequest(requestId, recordId, timeoutObtain, timeoutReturn)
-      val lock = Lock(requestId, recordId, UUID.randomUUID(), Instant.now().minusSeconds(1), Instant.now().plusSeconds(5))
-      val runningRequest = RecordLocks.RunningRequest(client1.ref, request, createdAt = Instant.now().minusSeconds(1), lock)
-      mockStorage.reply(RecordLocksStorage.GetStateSuccess(PendingLockObtainedState, Some(runningRequest), Seq.empty))
-
-      client1.expectMsg(LockGetSuccess(lock))
-
-      client.awaitAssert {
-        client.send(transactionLock, GetState)
-        client.expectMsg(GetStateSuccess(LockedState, Some(runningRequest), Seq.empty))
-      }
-    }
-
     it("transitions to the locked state") {
       val f = testFixture()
       import f._
@@ -128,47 +104,6 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       client.awaitAssert {
         client.send(transactionLock, GetState)
         client.expectMsg(GetStateSuccess(IdleState, None, Seq.empty))
-      }
-    }
-
-    it("transitions to the next pending request state") {
-      val f = testFixture()
-      import f._
-
-      client.send(transactionLock, GetState)
-      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
-
-      mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
-
-      val requestId = RequestId(UUID.randomUUID())
-      val recordId = RecordId(1)
-      val request = LockGetRequest(requestId, recordId, timeoutObtain, timeoutReturn)
-      val pendingRequest = RecordLocks.PendingRequest(client1.ref, request, createdAt = Instant.now())
-      mockStorage.reply(RecordLocksStorage.GetStateSuccess(NextPendingRequestState, None, Seq(pendingRequest)))
-
-      val runningRequest1 = mockStorage.expectMsgPF() {
-        case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r)) =>
-          r.caller shouldBe client1.ref
-          r.request shouldBe request
-          r
-      }
-
-      mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest1)))
-
-      val lock = inside(client1.expectMsgType[LockGetSuccess]) {
-        case LockGetSuccess(l @ Lock(`requestId`, `recordId`, _, created, timeout)) =>
-          created.plusNanos(timeoutReturn.toNanos) shouldBe timeout
-          l
-      }
-
-      client.awaitAssert {
-        client.send(transactionLock, GetState)
-        inside(client.expectMsgType[GetStateSuccess]) {
-          case GetStateSuccess(LockedState, Some(runningRequest), Seq()) =>
-            runningRequest.caller shouldBe client1.ref
-            runningRequest.request shouldBe request
-            runningRequest.lock shouldBe lock
-        }
       }
     }
   }
@@ -566,7 +501,6 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
     }
 
     Seq(
-      "pending lock obtained" -> PendingLockObtainedState,
       "locked" -> LockedState,
       "pending lock expired" -> PendingLockExpiredState,
       "pending lock returned" -> PendingLockReturnedState).foreach {
@@ -631,7 +565,6 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
     }
 
     Seq(
-      "pending lock obtained" -> PendingLockObtainedState,
       "locked" -> LockedState,
       "pending lock expired" -> PendingLockExpiredState,
       "pending lock returned" -> PendingLockReturnedState).foreach {
@@ -698,7 +631,6 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
     }
 
     Seq(
-      "pending lock obtained" -> PendingLockObtainedState,
       "locked" -> LockedState,
       "pending lock expired" -> PendingLockExpiredState,
       "pending lock returned" -> PendingLockReturnedState).foreach {
