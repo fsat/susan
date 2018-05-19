@@ -704,6 +704,9 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
     val client1 = TestProbe()
     val client2 = TestProbe()
 
+    val transactionLockListener = TestProbe()
+    transactionLockListener.send(transactionLock, SubscribeRequest(transactionLockListener.ref))
+    transactionLockListener.expectMsg(SubscribeSuccess)
   }
 
 }
