@@ -376,7 +376,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       })
       .orElse(StateTransition {
         case LockReturnRequest(lock) if lock == stateData.runningRequest.lock =>
-          persistState(PendingLockReturnedState, stateData.runningRequest)(pendingLockReturned(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers))
+          persistState(PendingLockReturnedState)(pendingLockReturned(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers))
 
         case LockReturnRequest(lock) =>
           sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
@@ -400,7 +400,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       .orElse(StateTransition {
         case LockReturnRequest(lock) if lock == stateData.runningRequest.lock =>
           // TODO: persist lock returned + pending requests into state
-          persistState(LockedState, stateData.runningRequest)(pendingLockReturned(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers))
+          persistState(LockedState)(pendingLockReturned(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers))
 
         case LockReturnRequest(lock) =>
           sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
@@ -416,7 +416,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
           if (isExpired(stateData.runningRequest))
             // TODO: persist lock expired + pending requests into state
-            persistState(PendingLockExpiredState, stateData.runningRequest)(pendingLockExpired(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers))
+            persistState(PendingLockExpiredState)(pendingLockExpired(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers))
           else
             StateTransition.stay
       })
@@ -543,7 +543,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
           // TODO: move this into persistState
           storage ! RecordLocksStorage.UpdateStateRequest(self, LockedState, Some(runningRequest))
-          persistState(LockedState, runningRequest)(pendingLockObtained(runningRequest, pendingRequestsAlive.tail, subscribers))
+          persistState(LockedState)(pendingLockObtained(runningRequest, pendingRequestsAlive.tail, subscribers))
         }
       })
       .orElse(StateTransition {
@@ -628,13 +628,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
         nextState(pendingAliveKept)
     }
 
-  private def persistState(state: RecordLocksStateToPersist)(nextState: => StateTransition[RequestMessage]): StateTransition[RequestMessage] =
-    persistState(state, None)(nextState)
-
-  private def persistState(state: RecordLocksStateToPersist, runningRequest: RunningRequest)(nextState: => StateTransition[RequestMessage]): StateTransition[RequestMessage] =
-    persistState(state, Some(runningRequest))(nextState)
-
-  private def persistState(state: RecordLocksStateToPersist, runningRequest: Option[RunningRequest])(nextState: => StateTransition[RequestMessage]): StateTransition[RequestMessage] = {
+  private def persistState(state: RecordLocksStateToPersist)(nextState: => StateTransition[RequestMessage])(implicit stateData: RecordLocksStateData): StateTransition[RequestMessage] = {
     // TODO: not sure if persisting pending requests is a good idea
     // We need to persist running request to prevent:
     // - False positive, i.e. thinking transaction is successful while it's actually not
