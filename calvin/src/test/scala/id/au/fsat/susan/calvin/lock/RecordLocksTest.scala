@@ -25,24 +25,19 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       val f = testFixture()
       import f._
 
-      client.send(transactionLock, GetState)
-      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
+      transactionLockListener.expectMsg(StateChanged(LoadingState, None, Seq.empty))
 
       mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
       mockStorage.reply(RecordLocksStorage.GetStateSuccess(IdleState, None, Seq.empty))
 
-      client.awaitAssert {
-        client.send(transactionLock, GetState)
-        client.expectMsg(GetStateSuccess(IdleState, None, Seq.empty))
-      }
+      transactionLockListener.expectMsg(StateChanged(IdleState, None, Seq.empty))
     }
 
     it("transitions to the locked state") {
       val f = testFixture()
       import f._
 
-      client.send(transactionLock, GetState)
-      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
+      transactionLockListener.expectMsg(StateChanged(LoadingState, None, Seq.empty))
 
       mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
 
@@ -52,6 +47,8 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       val lock = Lock(requestId, recordId, UUID.randomUUID(), Instant.now().minusSeconds(1), Instant.now().plusSeconds(5))
       val runningRequest = RecordLocks.RunningRequest(client1.ref, request, createdAt = Instant.now().minusSeconds(1), lock)
       mockStorage.reply(RecordLocksStorage.GetStateSuccess(LockedState, Some(runningRequest), Seq.empty))
+
+      transactionLockListener.expectMsg(StateChanged(LockedState, Some(runningRequest), Seq.empty))
 
       client1.expectNoMessage(100.millis)
 
@@ -63,8 +60,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       val f = testFixture()
       import f._
 
-      client.send(transactionLock, GetState)
-      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
+      transactionLockListener.expectMsg(StateChanged(LoadingState, None, Seq.empty))
 
       mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
 
@@ -75,20 +71,18 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       val runningRequest = RecordLocks.RunningRequest(client1.ref, request, createdAt = Instant.now().minusSeconds(1), lock)
       mockStorage.reply(RecordLocksStorage.GetStateSuccess(PendingLockExpiredState, Some(runningRequest), Seq.empty))
 
+      transactionLockListener.expectMsg(StateChanged(PendingLockExpiredState, Some(runningRequest), Seq.empty))
+
       client1.expectMsg(LockExpired(lock))
 
-      client.awaitAssert {
-        client.send(transactionLock, GetState)
-        client.expectMsg(GetStateSuccess(IdleState, None, Seq.empty))
-      }
+      transactionLockListener.expectMsg(StateChanged(IdleState, None, Seq.empty))
     }
 
     it("transitions to the pending lock returned state, and then send the returned message to the caller") {
       val f = testFixture()
       import f._
 
-      client.send(transactionLock, GetState)
-      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
+      transactionLockListener.expectMsg(StateChanged(LoadingState, None, Seq.empty))
 
       mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
 
@@ -99,12 +93,11 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       val runningRequest = RecordLocks.RunningRequest(client1.ref, request, createdAt = Instant.now().minusSeconds(1), lock)
       mockStorage.reply(RecordLocksStorage.GetStateSuccess(PendingLockReturnedState, Some(runningRequest), Seq.empty))
 
+      transactionLockListener.expectMsg(StateChanged(PendingLockReturnedState, Some(runningRequest), Seq.empty))
+
       client1.expectMsg(LockReturnSuccess(lock))
 
-      client.awaitAssert {
-        client.send(transactionLock, GetState)
-        client.expectMsg(GetStateSuccess(IdleState, None, Seq.empty))
-      }
+      transactionLockListener.expectMsg(StateChanged(IdleState, None, Seq.empty))
     }
   }
 
