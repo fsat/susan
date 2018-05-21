@@ -132,17 +132,12 @@ object RecordLocks {
    */
   case class RecordLocksStorageMessageWrapper(message: RecordLocksStorage.Message) extends RequestMessage
 
-  @deprecated
-  case object GetState extends RequestMessage
-  @deprecated
-  case class GetStateSuccess(state: RecordLocksState, runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest]) extends ResponseMessage
-
-  case class StateChanged(state: RecordLocksState, runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest]) extends ResponseMessage
-
   case class SubscribeRequest(ref: ActorRef) extends RequestMessage
   case object SubscribeSuccess extends ResponseMessage
   case class UnsubscribeRequest(ref: ActorRef) extends RequestMessage
   case object UnsubscribeSuccess extends ResponseMessage
+
+  case class StateChanged(state: RecordLocksState, runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest]) extends ResponseMessage
 
   /**
    * Represents a pending request for transaction lock
@@ -283,7 +278,6 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
     notifySubscribers(notify) {
       rejectInvalidLockGetRequest
         .orElse(rejectLockReturnRequest)
-        .orElse(getState)
         .orElse(appendLockGetRequestToPending(v => loading(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(dropStalePendingRequests(v => loading(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(handleSubscribers(
@@ -342,7 +336,6 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
     notifySubscribers(notify) {
       rejectInvalidLockGetRequest
         .orElse(rejectLockReturnRequest)
-        .orElse(getState)
         .orElse(handleSubscribers(
           append = v => idle(notify = false)(stateData + v),
           remove = v => idle(notify = false)(stateData - v)))
@@ -374,7 +367,6 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       rejectInvalidLockGetRequest
         .orElse(appendLockGetRequestToPending(v => pendingLockObtained(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(dropStalePendingRequests(v => pendingLockObtained(notify = v != stateData.pendingRequests)(stateData.set(v))))
-        .orElse(getState)
         .orElse(handleSubscribers(
           append = v => pendingLockObtained(notify = false)(stateData + v),
           remove = v => pendingLockObtained(notify = false)(stateData - v)))
@@ -404,7 +396,6 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       rejectInvalidLockGetRequest
         .orElse(appendLockGetRequestToPending(v => locked(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(dropStalePendingRequests(v => locked(notify = v != stateData.pendingRequests)(stateData.set(v))))
-        .orElse(getState)
         .orElse(handleSubscribers(
           append = v => locked(notify = false)(stateData + v),
           remove = v => locked(notify = false)(stateData - v)))
@@ -441,7 +432,6 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       rejectInvalidLockGetRequest
         .orElse(appendLockGetRequestToPending(v => pendingLockExpired(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(dropStalePendingRequests(v => pendingLockExpired(notify = v != stateData.pendingRequests)(stateData.set(v))))
-        .orElse(getState)
         .orElse(handleSubscribers(
           append = v => pendingLockExpired(notify = false)(stateData + v),
           remove = v => pendingLockExpired(notify = false)(stateData - v)))
@@ -486,7 +476,6 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       rejectInvalidLockGetRequest
         .orElse(appendLockGetRequestToPending(v => pendingLockReturned(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(dropStalePendingRequests(v => pendingLockReturned(notify = v != stateData.pendingRequests)(stateData.set(v))))
-        .orElse(getState)
         .orElse(handleSubscribers(
           append = v => pendingLockReturned(notify = false)(stateData + v),
           remove = v => pendingLockReturned(notify = false)(stateData - v)))
@@ -536,7 +525,6 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       rejectInvalidLockGetRequest
         .orElse(rejectLockReturnRequest)
         .orElse(appendLockGetRequestToPending(v => nextPendingRequest(notify = true)(stateData.set(v))))
-        .orElse(getState)
         .orElse(handleSubscribers(
           append = v => nextPendingRequest(notify = false)(stateData + v),
           remove = v => nextPendingRequest(notify = false)(stateData - v)))
@@ -594,13 +582,6 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
       case UnsubscribeRequest(ref) =>
         ref ! UnsubscribeSuccess
         remove(ref)
-    }
-
-  private def getState(implicit stateData: RecordLocksStateData): StateTransition[RequestMessage] =
-    StateTransition {
-      case GetState =>
-        sender() ! GetStateSuccess(stateData.state, stateData.runningRequestOpt, stateData.pendingRequests)
-        StateTransition.stay
     }
 
   private def appendLockGetRequestToPending(nextState: Seq[PendingRequest] => StateTransition[RequestMessage])(implicit stateData: RecordLocksStateData): StateTransition[RequestMessage] =

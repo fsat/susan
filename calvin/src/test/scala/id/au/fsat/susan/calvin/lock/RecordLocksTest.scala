@@ -472,8 +472,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       val f = testFixture()
       import f._
 
-      client.send(transactionLock, GetState)
-      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
+      transactionLockListener.expectMsg(StateChanged(LoadingState, None, Seq.empty))
 
       mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
 
@@ -482,14 +481,11 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       val recordIdPending = RecordId(10)
       client1.send(transactionLock, LockGetRequest(requestIdPending, recordIdPending, timeoutObtain, timeoutReturn))
 
-      client.awaitAssert {
-        client.send(transactionLock, GetState)
-        inside(client.expectMsgType[GetStateSuccess]) {
-          case GetStateSuccess(LoadingState, None, Seq(pendingRequest)) =>
-            pendingRequest.request.requestId shouldBe requestIdPending
-            pendingRequest.request.recordId shouldBe recordIdPending
-            pendingRequest.caller shouldBe client1.ref
-        }
+      transactionLockListener.expectMsgPF() {
+        case StateChanged(LoadingState, None, Seq(pendingRequest)) =>
+          pendingRequest.request.requestId shouldBe requestIdPending
+          pendingRequest.request.recordId shouldBe recordIdPending
+          pendingRequest.caller shouldBe client1.ref
       }
     }
 
@@ -502,6 +498,8 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
             val f = testFixture(maxPendingRequests = 1)
             import f._
 
+            transactionLockListener.expectMsg(StateChanged(LoadingState, None, Seq.empty))
+
             val requestId = RequestId(UUID.randomUUID())
             val recordId = RecordId(1123)
             val request = LockGetRequest(requestId, recordId, timeoutObtain, 3.minutes)
@@ -511,11 +509,8 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
             mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
             mockStorage.reply(RecordLocksStorage.GetStateSuccess(state, runningRequest, Seq.empty))
 
-            client.awaitAssert {
-              client.send(transactionLock, GetState)
-              inside(client.expectMsgType[GetStateSuccess]) {
-                case GetStateSuccess(_, _, Seq()) =>
-              }
+            transactionLockListener.expectMsgPF() {
+              case StateChanged(`state`, `runningRequest`, Seq()) =>
             }
 
             val requestIdToEnqueue = RequestId(UUID.randomUUID())
@@ -525,15 +520,11 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
 
             client2.send(transactionLock, requestToEnqueue)
 
-            client.awaitAssert {
-              client.send(transactionLock, GetState)
-              inside(client.expectMsgType[GetStateSuccess]) {
-                case GetStateSuccess(_, _, Seq(pendingRequest)) =>
-                  pendingRequest.request shouldBe requestToEnqueue
-                  pendingRequest.caller shouldBe client2.ref
-              }
+            transactionLockListener.expectMsgPF() {
+              case StateChanged(`state`, `runningRequest`, Seq(pendingRequest)) =>
+                pendingRequest.request shouldBe requestToEnqueue
+                pendingRequest.caller shouldBe client2.ref
             }
-
           }
       }
   }
@@ -543,8 +534,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       val f = testFixture()
       import f._
 
-      client.send(transactionLock, GetState)
-      client.expectMsg(GetStateSuccess(LoadingState, None, Seq.empty))
+      transactionLockListener.expectMsg(StateChanged(LoadingState, None, Seq.empty))
 
       mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
 
