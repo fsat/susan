@@ -20,6 +20,7 @@ import java.time.Instant
 import java.util.UUID
 
 import akka.actor.{ Actor, ActorLogging, ActorRef, Props, Terminated }
+import id.au.fsat.susan.calvin.lock.RecordLocksStorage.{ UpdateStateRequest, UpdateStateSuccess }
 import id.au.fsat.susan.calvin.{ RecordId, RemoteMessage, StateTransition }
 
 import scala.collection.immutable.Seq
@@ -357,6 +358,10 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             // Nothing to do, everything clear
             StateTransition.stay
         })
+        .orElse(StateTransition {
+          case RecordLocksStorageMessageWrapper(UpdateStateSuccess(IdleState, _)) =>
+            StateTransition.stay
+        })
     }
 
   private def pendingLockObtained(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest], subscribers: Set[ActorRef]): StateTransition[RequestMessage] =
@@ -401,7 +406,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           remove = v => locked(notify = false)(stateData - v)))
         .orElse(StateTransition {
           case LockReturnRequest(lock) if lock == stateData.runningRequest.lock =>
-            // TODO: persist lock returned + pending requests into state
+            // TODO: move into persistState
+            storage ! UpdateStateRequest(self, PendingLockReturnedState, stateData.runningRequestOpt)
             persistState(LockedState)(pendingLockReturned(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers))
 
           case LockReturnRequest(lock) =>
@@ -416,10 +422,11 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
               now.isAfter(deadline)
             }
 
-            if (isExpired(stateData.runningRequest))
-              // TODO: persist lock expired + pending requests into state
+            if (isExpired(stateData.runningRequest)) {
+              // TODO: move into persistState
+              storage ! UpdateStateRequest(self, PendingLockExpiredState, stateData.runningRequestOpt)
               persistState(PendingLockExpiredState)(pendingLockExpired(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers))
-            else
+            } else
               StateTransition.stay
         })
     }
@@ -436,6 +443,21 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           append = v => pendingLockExpired(notify = false)(stateData + v),
           remove = v => pendingLockExpired(notify = false)(stateData - v)))
         .orElse(StateTransition {
+          case RecordLocksStorageMessageWrapper(UpdateStateSuccess(PendingLockExpiredState, Some(r))) if r == stateData.runningRequest =>
+            // TODO: cancel running requests if timed out
+
+            import stateData._
+
+            runningRequest.caller ! LockExpired(runningRequest.lock)
+
+            if (pendingRequests.isEmpty) {
+              // TODO: move into persist state
+              storage ! UpdateStateRequest(self, IdleState, None)
+              persistState(IdleState)(idle(subscribers))
+            } else
+              nextPendingRequest(pendingRequests, subscribers)
+        })
+        .orElse(StateTransition {
           case LockReturnRequest(lock) if lock == stateData.runningRequest.lock =>
             import stateData._
 
@@ -445,9 +467,12 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             sender() ! lockExpired
             runningRequest.caller ! lockExpired
 
-            if (pendingRequests.isEmpty)
+            if (pendingRequests.isEmpty) {
+              // TODO: move into persist state
+              storage ! UpdateStateRequest(self, IdleState, None)
+
               persistState(IdleState)(idle(subscribers))
-            else
+            } else
               nextPendingRequest(pendingRequests, subscribers)
 
           case LockReturnRequest(lock) =>
@@ -455,17 +480,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             StateTransition.stay
 
           case Tick =>
-            import stateData._
-
-            // TODO: wait for reply that state have been saved
-            // TODO: cancel running requests if timed out
-
-            runningRequest.caller ! LockExpired(runningRequest.lock)
-
-            if (pendingRequests.isEmpty)
-              persistState(IdleState)(idle(subscribers))
-            else
-              nextPendingRequest(pendingRequests, subscribers)
+            StateTransition.stay
         })
     }
   private def pendingLockReturned(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest], subscribers: Set[ActorRef]): StateTransition[RequestMessage] =
@@ -480,25 +495,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           append = v => pendingLockReturned(notify = false)(stateData + v),
           remove = v => pendingLockReturned(notify = false)(stateData - v)))
         .orElse(StateTransition {
-          case LockReturnRequest(lock) if lock == stateData.runningRequest.lock =>
-            import stateData._
-
-            // TODO: what should we do here? for now, we'll reply to both sender & running requests and lock is returned
-            val lockReturned = LockReturnSuccess(runningRequest.lock)
-
-            sender() ! lockReturned
-            runningRequest.caller ! lockReturned
-
-            if (pendingRequests.isEmpty)
-              persistState(IdleState)(idle(subscribers))
-            else
-              nextPendingRequest(pendingRequests, subscribers)
-
-          case LockReturnRequest(lock) =>
-            sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
-            StateTransition.stay
-
-          case Tick =>
+          case RecordLocksStorageMessageWrapper(UpdateStateSuccess(PendingLockReturnedState, Some(r))) if r == stateData.runningRequest =>
             import stateData._
 
             // TODO: wait for reply that state have been saved
@@ -510,10 +507,35 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
             runningRequest.caller ! reply
 
-            if (pendingRequests.isEmpty)
+            if (pendingRequests.isEmpty) {
+              storage ! UpdateStateRequest(self, IdleState, None)
               persistState(IdleState)(idle(subscribers))
-            else
+            } else
               nextPendingRequest(pendingRequests, subscribers)
+
+        })
+        .orElse(StateTransition {
+          case LockReturnRequest(lock) if lock == stateData.runningRequest.lock =>
+            import stateData._
+
+            // TODO: what should we do here? for now, we'll reply to both sender & running requests and lock is returned
+            val lockReturned = LockReturnSuccess(runningRequest.lock)
+
+            sender() ! lockReturned
+            runningRequest.caller ! lockReturned
+
+            if (pendingRequests.isEmpty) {
+              storage ! UpdateStateRequest(self, IdleState, None)
+              persistState(IdleState)(idle(subscribers))
+            } else
+              nextPendingRequest(pendingRequests, subscribers)
+
+          case LockReturnRequest(lock) =>
+            sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
+            StateTransition.stay
+
+          case Tick =>
+            StateTransition.stay
         })
     }
 
@@ -531,9 +553,11 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
         .orElse(dropStalePendingRequests { pendingRequestsAlive =>
           import stateData.subscribers
 
-          if (pendingRequestsAlive.isEmpty)
+          if (pendingRequestsAlive.isEmpty) {
+            // TODO: move this into persistState
+            storage ! UpdateStateRequest(self, IdleState, None)
             persistState(IdleState)(idle(subscribers))
-          else {
+          } else {
             val pendingRequest = pendingRequestsAlive.head
 
             val requestId = pendingRequest.request.requestId
