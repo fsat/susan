@@ -247,6 +247,10 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client2.expectNoMessage(50.millis)
 
           client1.send(transactionLock, LockReturnRequest(lock1))
+
+          mockStorage.expectMsg(RecordLocksStorage.UpdateStateRequest(transactionLock, PendingLockReturnedState, Some(runningRequest1)))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockReturnedState, Some(runningRequest1)))
+
           client1.expectMsg(LockReturnSuccess(lock1))
 
           val runningRequest2 = mockStorage.expectMsgPF() {
@@ -265,7 +269,14 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           }
 
           client2.send(transactionLock, LockReturnRequest(lock2))
+
+          mockStorage.expectMsg(RecordLocksStorage.UpdateStateRequest(transactionLock, PendingLockReturnedState, Some(runningRequest2)))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockReturnedState, Some(runningRequest2)))
+
           client2.expectMsg(LockReturnSuccess(lock2))
+
+          mockStorage.expectMsg(RecordLocksStorage.UpdateStateRequest(transactionLock, IdleState, None))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(IdleState, None))
         }
       }
     }
