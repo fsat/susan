@@ -308,8 +308,38 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
               case IdleState   => if (pendingRequestsAll.isEmpty) idle(subscribers) else nextPendingRequest(pendingRequestsAll, subscribers)
               case LockedState => withRunningRequestPresent(locked(_, pendingRequestsAll, subscribers))
               case PendingLockExpiredState =>
-                withRunningRequestPresent(pendingLockExpired(_, pendingRequestsAll, subscribers))
-              case PendingLockReturnedState => withRunningRequestPresent(pendingLockReturned(_, pendingRequestsAll, subscribers))
+                withRunningRequestPresent { runningRequest =>
+                  notifySubscribers(subscribers, PendingLockExpiredState, Some(runningRequest), pendingRequestsAll)
+
+                  runningRequest.caller ! LockExpired(runningRequest.lock)
+
+                  notifySubscribers(notify = true) {
+                    if (pendingRequestsAll.isEmpty) {
+                      // TODO: move into persist state
+                      storage ! UpdateStateRequest(self, IdleState, None)
+                      persistState(IdleState)(idle(subscribers))
+                    } else
+                      nextPendingRequest(pendingRequestsAll, subscribers)
+                  }
+                }
+              case PendingLockReturnedState =>
+                withRunningRequestPresent { runningRequest =>
+                  notifySubscribers(subscribers, PendingLockReturnedState, Some(runningRequest), pendingRequestsAll)
+
+                  val now = Instant.now()
+                  val isLate = now.isAfter(runningRequest.lock.returnDeadline)
+                  val reply = if (isLate) LockReturnLate(runningRequest.lock) else LockReturnSuccess(runningRequest.lock)
+
+                  runningRequest.caller ! reply
+
+                  notifySubscribers(notify = true) {
+                    if (pendingRequestsAll.isEmpty) {
+                      storage ! UpdateStateRequest(self, IdleState, None)
+                      persistState(IdleState)(idle(subscribers))
+                    } else
+                      nextPendingRequest(pendingRequestsAll, subscribers)
+                  }
+                }
             }
 
           case RecordLocksStorageMessageWrapper(RecordLocksStorage.GetStateFailure(_, message, error)) =>
@@ -498,7 +528,6 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           case RecordLocksStorageMessageWrapper(UpdateStateSuccess(PendingLockReturnedState, Some(r))) if r == stateData.runningRequest =>
             import stateData._
 
-            // TODO: wait for reply that state have been saved
             // TODO: cancel running requests if timed out
 
             val now = Instant.now()
@@ -667,9 +696,13 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
     val transition = nextState
 
     if (notify && transition != StateTransition.stay) {
-      stateData.subscribers.foreach(_ ! StateChanged(stateData.state, stateData.runningRequestOpt, stateData.pendingRequests))
+      notifySubscribers(stateData.subscribers, stateData.state, stateData.runningRequestOpt, stateData.pendingRequests)
     }
 
     transition
   }
+
+  private def notifySubscribers(subscribers: Set[ActorRef], state: RecordLocksState, runningRequest: Option[RunningRequest], pendingRequests: Seq[PendingRequest]): Unit =
+    subscribers.foreach(_ ! StateChanged(state, runningRequest, pendingRequests))
+
 }

@@ -53,6 +53,13 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       client1.expectNoMessage(100.millis)
 
       client1.send(transactionLock, LockReturnRequest(lock))
+
+      mockStorage.expectMsgPF() {
+        case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockReturnedState, Some(r)) =>
+          r shouldBe runningRequest
+      }
+      mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockReturnedState, Some(runningRequest)))
+
       client1.expectMsg(LockReturnSuccess(lock))
     }
 
