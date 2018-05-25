@@ -545,25 +545,112 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       }
     }
 
+    it(s"works during locked state") {
+      val f = testFixture(maxPendingRequests = 1)
+      import f._
+
+      transactionLockListener.expectMsg(StateChanged(LoadingState, None, Seq.empty))
+
+      val requestId = RequestId(UUID.randomUUID())
+      val recordId = RecordId(1123)
+      val request = LockGetRequest(requestId, recordId, timeoutObtain, 3.minutes)
+      val lock = Lock(requestId, recordId, UUID.randomUUID(), Instant.now().minusSeconds(1), Instant.now().plusSeconds(5))
+      val runningRequest = Option(RecordLocks.RunningRequest(TestProbe().ref, request, createdAt = lock.createdAt, lock))
+
+      mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
+      mockStorage.reply(RecordLocksStorage.GetStateSuccess(LockedState, runningRequest, Seq.empty))
+
+      transactionLockListener.expectMsgPF() {
+        case StateChanged(LockedState, `runningRequest`, Seq()) =>
+      }
+
+      val requestIdToEnqueue = RequestId(UUID.randomUUID())
+      val recordIdToEnqueue = RecordId(12)
+      // Force request to expire by negating the timeout to obtain
+      val requestToEnqueue = LockGetRequest(requestIdToEnqueue, recordIdToEnqueue, maxTimeoutObtain, maxTimeoutReturn)
+
+      client2.send(transactionLock, requestToEnqueue)
+
+      transactionLockListener.expectMsgPF() {
+        case StateChanged(LockedState, `runningRequest`, Seq(pendingRequest)) =>
+          pendingRequest.request shouldBe requestToEnqueue
+          pendingRequest.caller shouldBe client2.ref
+      }
+    }
+
+    it(s"works during pending lock expired state") {
+      val f = testFixtureWithIdleStateOnStartup(maxPendingRequests = 1)
+      import f._
+
+      transactionLockListener.expectMsg(StateChanged(LoadingState, None, Seq.empty))
+
+      transactionLockListener.expectMsg(StateChanged(IdleState, None, Seq.empty))
+
+      val timeoutReturn = 200.millis
+
+      val requestId = RequestId(UUID.randomUUID())
+      val recordId = RecordId(1123)
+      val request = LockGetRequest(requestId, recordId, timeoutObtain, timeoutReturn)
+
+      client1.send(transactionLock, request)
+
+      val runningRequest = mockStorage.expectMsgPF() {
+        case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r)) =>
+          r.caller shouldBe client1.ref
+          r.request shouldBe request
+          r
+      }
+
+      transactionLockListener.expectMsg(StateChanged(PendingLockObtainedState, Some(runningRequest), Seq.empty))
+
+      mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest)))
+
+      transactionLockListener.expectMsg(StateChanged(LockedState, Some(runningRequest), Seq.empty))
+
+      val lock = inside(client1.expectMsgType[LockGetSuccess]) {
+        case LockGetSuccess(lock @ Lock(`requestId`, `recordId`, _, createdAt, returnDeadline)) =>
+          createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
+          lock
+      }
+
+      transactionLockListener.expectMsg(StateChanged(PendingLockExpiredState, Some(runningRequest), Seq.empty))
+
+      mockStorage.expectMsgPF(timeoutReturn) {
+        case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockExpiredState, Some(`runningRequest`)) =>
+      }
+
+      val requestIdToEnqueue = RequestId(UUID.randomUUID())
+      val recordIdToEnqueue = RecordId(12)
+      // Force request to expire by negating the timeout to obtain
+      val requestToEnqueue = LockGetRequest(requestIdToEnqueue, recordIdToEnqueue, maxTimeoutObtain, maxTimeoutReturn)
+
+      client2.send(transactionLock, requestToEnqueue)
+
+      transactionLockListener.expectMsgPF() {
+        case StateChanged(PendingLockExpiredState, Some(`runningRequest`), Seq(pendingRequest)) =>
+          pendingRequest.request shouldBe requestToEnqueue
+          pendingRequest.caller shouldBe client2.ref
+      }
+    }
+
     Seq(
-      "locked" -> LockedState,
-      "pending lock expired" -> PendingLockExpiredState,
+      //      "pending lock expired" -> PendingLockExpiredState,
       "pending lock returned" -> PendingLockReturnedState).foreach {
         case (scenario, state) =>
           it(s"works during $scenario state") {
-            val f = testFixture(maxPendingRequests = 1)
+            val f = testFixtureWithIdleStateOnStartup(maxPendingRequests = 1)
             import f._
 
             transactionLockListener.expectMsg(StateChanged(LoadingState, None, Seq.empty))
+
+            mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
+            mockStorage.reply(RecordLocksStorage.GetStateSuccess(IdleState, None, Seq.empty))
 
             val requestId = RequestId(UUID.randomUUID())
             val recordId = RecordId(1123)
             val request = LockGetRequest(requestId, recordId, timeoutObtain, 3.minutes)
             val lock = Lock(requestId, recordId, UUID.randomUUID(), Instant.now().minusSeconds(1), Instant.now().plusSeconds(5))
             val runningRequest = Option(RecordLocks.RunningRequest(TestProbe().ref, request, createdAt = lock.createdAt, lock))
-
-            mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
-            mockStorage.reply(RecordLocksStorage.GetStateSuccess(state, runningRequest, Seq.empty))
 
             transactionLockListener.expectMsgPF() {
               case StateChanged(`state`, `runningRequest`, Seq()) =>
@@ -730,7 +817,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
   private def testFixture(maxTimeoutObtain: FiniteDuration = maxTimeoutObtain, maxTimeoutReturn: FiniteDuration = maxTimeoutReturn,
     removeStaleLocksAfter: FiniteDuration = removeStaleLocksAfter, checkInterval: FiniteDuration = checkInterval, maxPendingRequests: Int = maxPendingRequests) = new {
     val timeoutObtain = 300.millis
-    val timeoutReturn = 2000.millis
+    val timeoutReturn = 2.seconds
 
     implicit val transactionLockSettings = RecordLockSettings(maxTimeoutObtain, maxTimeoutReturn, removeStaleLocksAfter, checkInterval, maxPendingRequests)
 
