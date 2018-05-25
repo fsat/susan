@@ -400,6 +400,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
   private def pendingLockObtained(notify: Boolean)(implicit stateData: PendingLockObtainedStateData): StateTransition[RequestMessage] =
     notifySubscribers(notify) {
       rejectInvalidLockGetRequest
+        .orElse(acknowledgeIdleStatePersisted)
         .orElse(appendLockGetRequestToPending(v => pendingLockObtained(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(dropStalePendingRequests(v => pendingLockObtained(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(handleSubscribers(
@@ -429,6 +430,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
   private def locked(notify: Boolean)(implicit stateData: LockedStateData): StateTransition[RequestMessage] =
     notifySubscribers(notify) {
       rejectInvalidLockGetRequest
+        .orElse(acknowledgeIdleStatePersisted)
         .orElse(appendLockGetRequestToPending(v => locked(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(dropStalePendingRequests(v => locked(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(handleSubscribers(
@@ -467,6 +469,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
   private def pendingLockExpired(notify: Boolean)(implicit stateData: PendingLockExpiredStateData): StateTransition[RequestMessage] =
     notifySubscribers(notify) {
       rejectInvalidLockGetRequest
+        .orElse(acknowledgeIdleStatePersisted)
         .orElse(appendLockGetRequestToPending(v => pendingLockExpired(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(dropStalePendingRequests(v => pendingLockExpired(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(handleSubscribers(
@@ -519,6 +522,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
   private def pendingLockReturned(notify: Boolean)(implicit stateData: PendingLockReturnedStateData): StateTransition[RequestMessage] =
     notifySubscribers(notify) {
       rejectInvalidLockGetRequest
+        .orElse(acknowledgeIdleStatePersisted)
         .orElse(appendLockGetRequestToPending(v => pendingLockReturned(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(dropStalePendingRequests(v => pendingLockReturned(notify = v != stateData.pendingRequests)(stateData.set(v))))
         .orElse(handleSubscribers(
@@ -575,6 +579,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
     notifySubscribers(notify) {
       rejectInvalidLockGetRequest
         .orElse(rejectLockReturnRequest)
+        .orElse(acknowledgeIdleStatePersisted)
         .orElse(appendLockGetRequestToPending(v => nextPendingRequest(notify = true)(stateData.set(v))))
         .orElse(handleSubscribers(
           append = v => nextPendingRequest(notify = false)(stateData + v),
@@ -622,6 +627,14 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
   private def rejectLockReturnRequest: StateTransition[RequestMessage] = StateTransition {
     case LockReturnRequest(lock) =>
       sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
+      StateTransition.stay
+  }
+
+  private def acknowledgeIdleStatePersisted: StateTransition[RequestMessage] = StateTransition {
+    case RecordLocksStorageMessageWrapper(RecordLocksStorage.UpdateStateSuccess(IdleState, _)) =>
+      // We can arrive in this state if there's race between persisting the idle state and some other operation,
+      // i.e. the lock request being sent.
+      // This is an expected race condition, so just accept the idle state persisted confirmation and continue
       StateTransition.stay
   }
 

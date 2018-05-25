@@ -315,6 +315,10 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           client2.expectMsg(LockGetTimeout(request2))
 
           client1.send(transactionLock, LockReturnRequest(lock1))
+
+          mockStorage.expectMsg(RecordLocksStorage.UpdateStateRequest(transactionLock, PendingLockReturnedState, Some(runningRequest)))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockReturnedState, Some(runningRequest)))
+
           client1.expectMsg(LockReturnSuccess(lock1))
 
           client2.expectNoMessage(300.millis)
@@ -407,9 +411,16 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           }
 
           client1.send(transactionLock, LockReturnRequest(lock))
+
+          mockStorage.expectMsg(RecordLocksStorage.UpdateStateRequest(transactionLock, PendingLockReturnedState, Some(runningRequest)))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockReturnedState, Some(runningRequest)))
+
           client1.expectMsg(LockReturnLate(lock))
 
           client2.expectNoMessage(100.millis)
+
+          mockStorage.expectMsg(RecordLocksStorage.UpdateStateRequest(transactionLock, IdleState, None))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(IdleState, None))
         }
 
         it("errors if the lock return timeout exceeds allowable max") {
@@ -477,9 +488,16 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
           val request2 = LockGetRequest(requestId2, record, 10.millis, timeoutReturn)
 
           client2.send(transactionLock, request2)
+
+          mockStorage.expectMsg(RecordLocksStorage.UpdateStateRequest(transactionLock, PendingLockExpiredState, Some(runningRequest1)))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(PendingLockExpiredState, Some(runningRequest1)))
+
           client2.expectMsg(LockGetTimeout(request2))
 
           client1.expectMsg(LockExpired(lock1))
+
+          mockStorage.expectMsg(RecordLocksStorage.UpdateStateRequest(transactionLock, IdleState, None))
+          mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(IdleState, None))
 
           client2.send(transactionLock, request2)
 
@@ -496,6 +514,9 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
             case LockGetSuccess(lock @ Lock(`requestId2`, `record`, _, createdAt, returnDeadline)) =>
               createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
               lock
+            case v =>
+              println(v)
+              fail()
           }
         }
       }
