@@ -5,6 +5,7 @@ import java.util.UUID
 
 import akka.actor.{ ActorRef, Props }
 import akka.testkit.TestProbe
+import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
 import id.au.fsat.susan.calvin.{ RecordId, UnitTest }
 import org.scalatest.{ FunSpec, Inside }
 

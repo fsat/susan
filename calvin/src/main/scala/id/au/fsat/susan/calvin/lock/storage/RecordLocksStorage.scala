@@ -1,8 +1,8 @@
-package id.au.fsat.susan.calvin.lock
+package id.au.fsat.susan.calvin.lock.storage
 
 import akka.actor.{ Actor, ActorRef, Props }
-import akka.cluster.ddata.{ ORMap, ORMapKey }
-import id.au.fsat.susan.calvin.lock.RecordLocks.{ PendingRequest, RecordLocksStateToPersist, RecordLocksState, RunningRequest }
+import id.au.fsat.susan.calvin.StateTransition
+import id.au.fsat.susan.calvin.lock.RecordLocks.{ PendingRequest, RecordLocksStateToPersist, RunningRequest }
 
 import scala.collection.immutable.Seq
 
@@ -35,5 +35,11 @@ object RecordLocksStorage {
 }
 
 class RecordLocksStorage extends Actor {
+  import RecordLocksStorage._
+
   override def receive: Receive = ???
+
+  private def loading(): StateTransition[RequestMessage] = ???
+  private def idle(): StateTransition[RequestMessage] = ???
+  private def persisting(): StateTransition[RequestMessage] = ???
 }

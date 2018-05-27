@@ -1,8 +1,8 @@
-package id.au.fsat.susan.calvin.lock
+package id.au.fsat.susan.calvin.lock.cluster
 
 import akka.cluster.sharding.ShardRegion
 import id.au.fsat.susan.calvin.RecordId
-import id.au.fsat.susan.calvin.lock.RecordLockClusterShardingSettings._
+import id.au.fsat.susan.calvin.lock.cluster.RecordLockClusterShardingSettings._
 
 object RecordLockClusterShardingSettings {
   type NumberOfShards = Int

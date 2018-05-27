@@ -6,20 +6,22 @@ import akka.cluster.MemberStatus
 import akka.testkit.TestProbe
 import id.au.fsat.susan.calvin.{ ClusteredTest, RecordId }
 import id.au.fsat.susan.calvin.ClusteredTest.ClusteredSetup
-import id.au.fsat.susan.calvin.lock.RecordLockClusterShardingSettings.{ RecordIdToEntityId, RecordIdToShardId, ShardEntityIdToShardId }
 import id.au.fsat.susan.calvin.lock.RecordLocks._
+import id.au.fsat.susan.calvin.lock.cluster._
 import org.scalatest.{ FunSpec, Inside }
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
 object RecordLocksClusterShardingTest {
+  import RecordLockClusterShardingSettings._
   val recordIdValueToString: RecordIdToEntityId = _.value.toString
   val shardFromRecord: RecordIdToShardId = shardCount => y => (y.value.toString.toLong % shardCount).toString
   val shardFromEntityId: ShardEntityIdToShardId = shardCount => y => (y.toString.toLong % shardCount).toString
 }
 
 class RecordLocksClusterShardingTest extends FunSpec with ClusteredTest with Inside {
+  import RecordLockClusterShardingSettings._
   import RecordLocksClusterShardingTest._
 
   describe("obtaining transaction lock") {
