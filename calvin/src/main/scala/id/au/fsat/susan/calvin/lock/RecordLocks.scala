@@ -21,7 +21,7 @@ import java.util.UUID
 
 import akka.actor.{ Actor, ActorLogging, ActorRef, Cancellable, Props, Terminated }
 import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
-import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage.{ UpdateStateRequest, UpdateStateSuccess }
+import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage.UpdateStateSuccess
 import id.au.fsat.susan.calvin.{ RecordId, RemoteMessage, StateTransition }
 
 import scala.collection.immutable.Seq
@@ -246,7 +246,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
   import recordLockSettings._
   import context.dispatcher
 
-  private val storage = context.watch(createRecordLocksStorage())
+  private val storage = context.watch(createRecordLocksStorage(context))
 
   override def preStart(): Unit = {
     context.system.scheduler.schedule(checkInterval, checkInterval, self, ProcessPendingRequests)
@@ -254,9 +254,6 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
   }
 
   override def receive: Receive = stateTransition(loading())
-
-  protected def createRecordLocksStorage(): ActorRef =
-    context.actorOf(RecordLocksStorage.props, RecordLocksStorage.Name)
 
   private def stateTransition(currentState: StateTransition[RequestMessage]): Receive = {
     case v: RequestMessage =>

@@ -1,6 +1,13 @@
 package id.au.fsat.susan.calvin.lock
 
+import akka.actor.{ ActorContext, ActorRef }
+import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
+
 import scala.concurrent.duration.FiniteDuration
+
+object RecordLockSettings {
+  val CrdtRecordLocksStorage: ActorContext => ActorRef = _.actorOf(RecordLocksStorage.props, RecordLocksStorage.Name)
+}
 
 /**
  * Transaction lock related settings.
@@ -19,4 +26,5 @@ case class RecordLockSettings(
   maxTimeoutReturn: FiniteDuration,
   removeStaleLockAfter: FiniteDuration,
   checkInterval: FiniteDuration,
-  maxPendingRequests: Int)
+  maxPendingRequests: Int,
+  createRecordLocksStorage: ActorContext => ActorRef = RecordLockSettings.CrdtRecordLocksStorage)

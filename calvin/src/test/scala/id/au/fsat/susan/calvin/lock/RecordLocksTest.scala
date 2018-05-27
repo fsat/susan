@@ -839,12 +839,16 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
     val timeoutObtain = 300.millis
     val timeoutReturn = 2.seconds
 
-    implicit val transactionLockSettings = RecordLockSettings(maxTimeoutObtain, maxTimeoutReturn, removeStaleLocksAfter, checkInterval, maxPendingRequests)
-
     val mockStorage = TestProbe()
-    val transactionLock = actorSystem.actorOf(Props(new RecordLocks() {
-      override protected def createRecordLocksStorage(): ActorRef = mockStorage.ref
-    }))
+    implicit val transactionLockSettings = RecordLockSettings(
+      maxTimeoutObtain,
+      maxTimeoutReturn,
+      removeStaleLocksAfter,
+      checkInterval,
+      maxPendingRequests,
+      createRecordLocksStorage = _ => mockStorage.ref)
+
+    val transactionLock = actorSystem.actorOf(Props(new RecordLocks()))
 
     val client = TestProbe()
     val client1 = TestProbe()
