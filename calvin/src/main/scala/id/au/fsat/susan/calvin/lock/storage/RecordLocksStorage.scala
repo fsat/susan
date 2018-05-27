@@ -1,8 +1,8 @@
 package id.au.fsat.susan.calvin.lock.storage
 
-import akka.actor.{ Actor, ActorRef, Props }
+import akka.actor.{Actor, ActorRef, Props, Terminated}
 import id.au.fsat.susan.calvin.StateTransition
-import id.au.fsat.susan.calvin.lock.RecordLocks.{ PendingRequest, RecordLocksStateToPersist, RunningRequest }
+import id.au.fsat.susan.calvin.lock.RecordLocks._
 
 import scala.collection.immutable.Seq
 
@@ -37,7 +37,20 @@ object RecordLocksStorage {
 class RecordLocksStorage extends Actor {
   import RecordLocksStorage._
 
-  override def receive: Receive = ???
+  private val crdt = context.watch(createCrdt())
+
+  override def receive: Receive = stateTransition(loading())
+
+  protected def createCrdt(): ActorRef = ???
+
+  private def stateTransition(currentState: StateTransition[RequestMessage]): Receive = {
+    case v: RequestMessage =>
+      val nextState = currentState.pf(v)
+      context.become(stateTransition(if (nextState == StateTransition.stay) currentState else nextState))
+
+    case Terminated(`crdt`) =>
+      context.stop(self)
+  }
 
   private def loading(): StateTransition[RequestMessage] = ???
   private def idle(): StateTransition[RequestMessage] = ???
