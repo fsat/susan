@@ -315,8 +315,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
                   notifySubscribers(notify = true) {
                     if (pendingRequestsAll.isEmpty) {
                       // TODO: move into persist state
-                      storage ! UpdateStateRequest(self, IdleState, None)
-                      persistState(IdleState)(idle(subscribers))
+                      persistState(IdleState)
+                      idle(subscribers)
                     } else
                       nextPendingRequest(pendingRequestsAll, subscribers)
                   }
@@ -333,8 +333,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
                   notifySubscribers(notify = true) {
                     if (pendingRequestsAll.isEmpty) {
-                      storage ! UpdateStateRequest(self, IdleState, None)
-                      persistState(IdleState)(idle(subscribers))
+                      persistState(IdleState)
+                      idle(subscribers)
                     } else
                       nextPendingRequest(pendingRequestsAll, subscribers)
                   }
@@ -372,8 +372,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             val runningRequest = RunningRequest(sender, request, Instant.now(), lock)
 
             // TODO: move this into persistState
-            storage ! RecordLocksStorage.UpdateStateRequest(self, LockedState, Some(runningRequest))
-            persistState(LockedState)(pendingLockObtained(runningRequest, Seq.empty, stateData.subscribers))
+            persistState(LockedState, runningRequest)
+            pendingLockObtained(runningRequest, Seq.empty, stateData.subscribers)
 
           case ProcessPendingRequests =>
             // Nothing to do, everything clear
@@ -404,7 +404,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
         })
         .orElse(StateTransition {
           case LockReturnRequest(lock) if lock == stateData.runningRequest.lock =>
-            persistState(PendingLockReturnedState)(pendingLockReturned(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers))
+            persistState(PendingLockReturnedState, stateData.runningRequest)
+            pendingLockReturned(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers)
 
           case LockReturnRequest(lock) =>
             sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
@@ -433,9 +434,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           case LockReturnRequest(lock) if lock == stateData.runningRequest.lock =>
             stateData.lockExpiryCheck.cancel()
 
-            // TODO: move into persistState
-            storage ! UpdateStateRequest(self, PendingLockReturnedState, stateData.runningRequestOpt)
-            persistState(LockedState)(pendingLockReturned(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers))
+            persistState(PendingLockReturnedState, stateData.runningRequest)
+            pendingLockReturned(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers)
 
           case LockReturnRequest(lock) =>
             sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
@@ -452,9 +452,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             if (isExpired(stateData.runningRequest)) {
               stateData.lockExpiryCheck.cancel()
 
-              // TODO: move into persistState
-              storage ! UpdateStateRequest(self, PendingLockExpiredState, stateData.runningRequestOpt)
-              persistState(PendingLockExpiredState)(pendingLockExpired(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers))
+              persistState(PendingLockExpiredState, stateData.runningRequest)
+              pendingLockExpired(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers)
             } else
               StateTransition.stay
         })
@@ -481,9 +480,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             runningRequest.caller ! LockExpired(runningRequest.lock)
 
             if (pendingRequests.isEmpty) {
-              // TODO: move into persist state
-              storage ! UpdateStateRequest(self, IdleState, None)
-              persistState(IdleState)(idle(subscribers))
+              persistState(IdleState)
+              idle(subscribers)
             } else
               nextPendingRequest(pendingRequests, subscribers)
         })
@@ -498,10 +496,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             runningRequest.caller ! lockExpired
 
             if (pendingRequests.isEmpty) {
-              // TODO: move into persist state
-              storage ! UpdateStateRequest(self, IdleState, None)
-
-              persistState(IdleState)(idle(subscribers))
+              persistState(IdleState)
+              idle(subscribers)
             } else
               nextPendingRequest(pendingRequests, subscribers)
 
@@ -535,8 +531,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             runningRequest.caller ! reply
 
             if (pendingRequests.isEmpty) {
-              storage ! UpdateStateRequest(self, IdleState, None)
-              persistState(IdleState)(idle(subscribers))
+              persistState(IdleState)
+              idle(subscribers)
             } else
               nextPendingRequest(pendingRequests, subscribers)
 
@@ -552,8 +548,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             runningRequest.caller ! lockReturned
 
             if (pendingRequests.isEmpty) {
-              storage ! UpdateStateRequest(self, IdleState, None)
-              persistState(IdleState)(idle(subscribers))
+              persistState(IdleState)
+              idle(subscribers)
             } else
               nextPendingRequest(pendingRequests, subscribers)
 
@@ -579,9 +575,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           import stateData.subscribers
 
           if (pendingRequestsAlive.isEmpty) {
-            // TODO: move this into persistState
-            storage ! UpdateStateRequest(self, IdleState, None)
-            persistState(IdleState)(idle(subscribers))
+            persistState(IdleState)
+            idle(subscribers)
           } else {
             val pendingRequest = pendingRequestsAlive.head
 
@@ -594,9 +589,8 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
 
             val runningRequest = RunningRequest(pendingRequest.caller, pendingRequest.request, pendingRequest.createdAt, lock)
 
-            // TODO: move this into persistState
-            storage ! RecordLocksStorage.UpdateStateRequest(self, LockedState, Some(runningRequest))
-            persistState(LockedState)(pendingLockObtained(runningRequest, pendingRequestsAlive.tail, subscribers))
+            persistState(LockedState, runningRequest)
+            pendingLockObtained(runningRequest, pendingRequestsAlive.tail, subscribers)
           }
         })
     }
@@ -680,7 +674,13 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
         nextState(pendingAliveKept)
     }
 
-  private def persistState(state: RecordLocksStateToPersist)(nextState: => StateTransition[RequestMessage])(implicit stateData: RecordLocksStateData): StateTransition[RequestMessage] = {
+  private def persistState(state: RecordLocksStateToPersist): Unit =
+    persistState(state, None)
+
+  private def persistState(state: RecordLocksStateToPersist, runningRequest: RunningRequest): Unit =
+    persistState(state, Some(runningRequest))
+
+  private def persistState(state: RecordLocksStateToPersist, runningRequest: Option[RunningRequest]): Unit = {
     // TODO: not sure if persisting pending requests is a good idea
     // We need to persist running request to prevent:
     // - False positive, i.e. thinking transaction is successful while it's actually not
@@ -688,8 +688,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
     // But we don't need to persist pending request?
     //
     // We don't persist pending requests for now to keep things simple for now
-    //storage ! RecordLocksStorage.UpdateStateRequest(from = self, state, runningRequest)
-    nextState
+    storage ! RecordLocksStorage.UpdateStateRequest(from = self, state, runningRequest)
   }
 
   private def notifySubscribers(notify: Boolean)(nextState: => StateTransition[RequestMessage])(implicit stateData: RecordLocksStateData): StateTransition[RequestMessage] = {

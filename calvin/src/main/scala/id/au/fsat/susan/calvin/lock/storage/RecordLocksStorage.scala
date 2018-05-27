@@ -1,6 +1,6 @@
 package id.au.fsat.susan.calvin.lock.storage
 
-import akka.actor.{Actor, ActorRef, Props, Terminated}
+import akka.actor.{ Actor, ActorRef, Props, Terminated }
 import id.au.fsat.susan.calvin.StateTransition
 import id.au.fsat.susan.calvin.lock.RecordLocks._
 
