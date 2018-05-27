@@ -633,43 +633,62 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
       }
     }
 
-    Seq(
-      //      "pending lock expired" -> PendingLockExpiredState,
-      "pending lock returned" -> PendingLockReturnedState).foreach {
-        case (scenario, state) =>
-          it(s"works during $scenario state") {
-            val f = testFixtureWithIdleStateOnStartup(maxPendingRequests = 1)
-            import f._
+    it(s"works during pending lock returned state") {
+      val f = testFixtureWithIdleStateOnStartup(maxPendingRequests = 1)
+      import f._
 
-            transactionLockListener.expectMsg(StateChanged(LoadingState, None, Seq.empty))
+      transactionLockListener.expectMsg(StateChanged(LoadingState, None, Seq.empty))
 
-            mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
-            mockStorage.reply(RecordLocksStorage.GetStateSuccess(IdleState, None, Seq.empty))
+      transactionLockListener.expectMsg(StateChanged(IdleState, None, Seq.empty))
 
-            val requestId = RequestId(UUID.randomUUID())
-            val recordId = RecordId(1123)
-            val request = LockGetRequest(requestId, recordId, timeoutObtain, 3.minutes)
-            val lock = Lock(requestId, recordId, UUID.randomUUID(), Instant.now().minusSeconds(1), Instant.now().plusSeconds(5))
-            val runningRequest = Option(RecordLocks.RunningRequest(TestProbe().ref, request, createdAt = lock.createdAt, lock))
+      val timeoutReturn = 200.millis
 
-            transactionLockListener.expectMsgPF() {
-              case StateChanged(`state`, `runningRequest`, Seq()) =>
-            }
+      val requestId = RequestId(UUID.randomUUID())
+      val recordId = RecordId(1123)
+      val request = LockGetRequest(requestId, recordId, timeoutObtain, timeoutReturn)
 
-            val requestIdToEnqueue = RequestId(UUID.randomUUID())
-            val recordIdToEnqueue = RecordId(12)
-            // Force request to expire by negating the timeout to obtain
-            val requestToEnqueue = LockGetRequest(requestIdToEnqueue, recordIdToEnqueue, maxTimeoutObtain, maxTimeoutReturn)
+      client1.send(transactionLock, request)
 
-            client2.send(transactionLock, requestToEnqueue)
-
-            transactionLockListener.expectMsgPF() {
-              case StateChanged(`state`, `runningRequest`, Seq(pendingRequest)) =>
-                pendingRequest.request shouldBe requestToEnqueue
-                pendingRequest.caller shouldBe client2.ref
-            }
-          }
+      val runningRequest = mockStorage.expectMsgPF() {
+        case RecordLocksStorage.UpdateStateRequest(`transactionLock`, LockedState, Some(r)) =>
+          r.caller shouldBe client1.ref
+          r.request shouldBe request
+          r
       }
+
+      transactionLockListener.expectMsg(StateChanged(PendingLockObtainedState, Some(runningRequest), Seq.empty))
+
+      mockStorage.reply(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest)))
+
+      transactionLockListener.expectMsg(StateChanged(LockedState, Some(runningRequest), Seq.empty))
+
+      val lock = inside(client1.expectMsgType[LockGetSuccess]) {
+        case LockGetSuccess(lock @ Lock(`requestId`, `recordId`, _, createdAt, returnDeadline)) =>
+          createdAt.plusNanos(timeoutReturn.toNanos) shouldBe returnDeadline
+          lock
+      }
+
+      client1.send(transactionLock, LockReturnRequest(lock))
+
+      transactionLockListener.expectMsg(StateChanged(PendingLockReturnedState, Some(runningRequest), Seq.empty))
+
+      mockStorage.expectMsgPF(timeoutReturn) {
+        case RecordLocksStorage.UpdateStateRequest(`transactionLock`, PendingLockReturnedState, Some(`runningRequest`)) =>
+      }
+
+      val requestIdToEnqueue = RequestId(UUID.randomUUID())
+      val recordIdToEnqueue = RecordId(12)
+      // Force request to expire by negating the timeout to obtain
+      val requestToEnqueue = LockGetRequest(requestIdToEnqueue, recordIdToEnqueue, maxTimeoutObtain, maxTimeoutReturn)
+
+      client2.send(transactionLock, requestToEnqueue)
+
+      transactionLockListener.expectMsgPF() {
+        case StateChanged(PendingLockReturnedState, Some(`runningRequest`), Seq(pendingRequest)) =>
+          pendingRequest.request shouldBe requestToEnqueue
+          pendingRequest.caller shouldBe client2.ref
+      }
+    }
   }
 
   describe("stale pending request") {
