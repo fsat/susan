@@ -253,7 +253,7 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
     storage ! RecordLocksStorage.GetStateRequest(self)
   }
 
-  override def receive: Receive = stateTransition(loading())
+  override def receive: Receive = stateTransition(loading(notify = false)(LoadingStateData()))
 
   private def stateTransition(currentState: StateTransition[RequestMessage]): Receive = {
     case v: RequestMessage =>
@@ -267,9 +267,6 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
     case Terminated(`storage`) =>
       context.stop(self)
   }
-
-  private def loading(): StateTransition[RequestMessage] =
-    loading(notify = false)(LoadingStateData())
 
   private def loading(notify: Boolean)(implicit stateData: LoadingStateData): StateTransition[RequestMessage] =
     notifySubscribers(notify) {
@@ -398,8 +395,9 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
         })
         .orElse(StateTransition {
           case LockReturnRequest(lock) if lock == stateData.runningRequest.lock =>
-            persistState(PendingLockReturnedState, stateData.runningRequest)
-            pendingLockReturned(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers)
+            val nextStateData = PendingLockReturnedStateData(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers)
+            persistState(PendingLockReturnedState, nextStateData.runningRequest)
+            pendingLockReturned(notify = true)(nextStateData)
 
           case LockReturnRequest(lock) =>
             sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
@@ -428,8 +426,9 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           case LockReturnRequest(lock) if lock == stateData.runningRequest.lock =>
             stateData.lockExpiryCheck.cancel()
 
-            persistState(PendingLockReturnedState, stateData.runningRequest)
-            pendingLockReturned(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers)
+            val nextStateData = PendingLockReturnedStateData(stateData.runningRequest, stateData.pendingRequests, stateData.subscribers)
+            persistState(PendingLockReturnedState, nextStateData.runningRequest)
+            pendingLockReturned(notify = true)(nextStateData)
 
           case LockReturnRequest(lock) =>
             sender() ! LockReturnFailure(lock, new IllegalArgumentException(s"The lock [$lock] is not registered"))
@@ -500,9 +499,6 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
             StateTransition.stay
         })
     }
-  private def pendingLockReturned(runningRequest: RunningRequest, pendingRequests: Seq[PendingRequest], subscribers: Set[ActorRef]): StateTransition[RequestMessage] =
-    pendingLockReturned(notify = true)(PendingLockReturnedStateData(runningRequest, pendingRequests, subscribers))
-
   private def pendingLockReturned(notify: Boolean)(implicit stateData: PendingLockReturnedStateData): StateTransition[RequestMessage] =
     notifySubscribers(notify) {
       rejectInvalidLockGetRequest
