@@ -768,7 +768,7 @@ class RecordLocksTest extends FunSpec with UnitTest with Inside {
 
             val requestIdPending = RequestId(UUID.randomUUID())
             val recordIdPending = RecordId(10)
-            val requestPending = LockGetRequest(requestIdPending, recordIdPending, 100.millis, maxTimeoutReturn)
+            val requestPending = LockGetRequest(requestIdPending, recordIdPending, 10.millis, maxTimeoutReturn)
 
             mockStorage.expectMsg(RecordLocksStorage.GetStateRequest(transactionLock))
 
