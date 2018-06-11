@@ -278,6 +278,13 @@ class RecordLocks()(implicit recordLockSettings: RecordLockSettings) extends Act
           append = v => loading(notify = false)(stateData + v),
           remove = v => loading(notify = false)(stateData - v)))
         .orElse(StateTransition {
+          case RecordLocksStorageMessageWrapper(RecordLocksStorage.GetStateNotFound) =>
+            if (stateData.pendingRequests.isEmpty)
+              idle(stateData.subscribers)
+            else
+              nextPendingRequest(stateData.pendingRequests, stateData.subscribers)
+        })
+        .orElse(StateTransition {
           case RecordLocksStorageMessageWrapper(RecordLocksStorage.GetStateSuccess(state, runningRequestLoaded)) =>
             import stateData.{ subscribers, pendingRequests }
 

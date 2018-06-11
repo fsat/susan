@@ -35,6 +35,7 @@ object RecordLocksStorage {
 
   case class GetStateRequest(from: ActorRef) extends RequestMessage
   case class GetStateSuccess(state: RecordLocksStateToPersist, runningRequest: Option[RunningRequest]) extends ResponseMessage
+  case object GetStateNotFound extends ResponseMessage
   case class GetStateFailure(request: GetStateRequest, message: String, error: Option[Throwable]) extends FailureMessage with ResponseMessage
 
   case class UpdateStateRequest(from: ActorRef, state: RecordLocksStateToPersist, runningRequest: Option[RunningRequest]) extends RequestMessage
@@ -98,6 +99,13 @@ class RecordLocksStorage extends Actor {
             val (from, data) = v
             from ! GetStateSuccess(data.state, data.runningRequest)
           }
+
+        nextState(pendingGetRequests.filterNot(_.id.toString == id))
+
+      case ReplicatorMessageWrapper(Replicator.NotFound(`Key`, Some(id: String))) =>
+        pendingGetRequests
+          .filter(_.id.toString == id)
+          .foreach (_.message.from ! GetStateNotFound)
 
         nextState(pendingGetRequests.filterNot(_.id.toString == id))
 
