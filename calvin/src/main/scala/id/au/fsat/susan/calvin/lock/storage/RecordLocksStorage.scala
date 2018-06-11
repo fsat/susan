@@ -105,7 +105,7 @@ class RecordLocksStorage extends Actor {
       case ReplicatorMessageWrapper(Replicator.NotFound(`Key`, Some(id: String))) =>
         pendingGetRequests
           .filter(_.id.toString == id)
-          .foreach (_.message.from ! GetStateNotFound)
+          .foreach(_.message.from ! GetStateNotFound)
 
         nextState(pendingGetRequests.filterNot(_.id.toString == id))
 
