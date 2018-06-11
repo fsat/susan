@@ -21,7 +21,7 @@ object RecordLocksClusterSharding {
   def create(system: ActorSystem)(implicit shardingSettings: RecordLockClusterShardingSettings, s: RecordLockSettings): ActorRef =
     ClusterSharding(system)
       .start(
-        typeName = "TransactionLocks",
+        typeName = RecordLocks.name,
         entityProps = props(),
         settings = ClusterShardingSettings(system),
         extractEntityId = createExtractEntityId(),
