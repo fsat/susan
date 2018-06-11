@@ -77,7 +77,7 @@ class RecordLocksStorage extends Actor {
   protected def recordIdFromRef(ref: ActorRef): String = ???
 
   private def idle(state: IdleStateData): StateTransition[RequestMessage] =
-    handleGetRequests(Seq.empty)(v => idle(IdleStateData(v)))
+    handleGetRequests(state.pendingGetRequests)(v => idle(IdleStateData(v)))
 
   private def handleGetRequests(pendingGetRequests: Seq[PendingGetRequest])(nextState: Seq[PendingGetRequest] => StateTransition[RequestMessage]): StateTransition[RequestMessage] =
     StateTransition {
@@ -91,13 +91,15 @@ class RecordLocksStorage extends Actor {
         val data = v.get(Key)
         pendingGetRequests
           .filter(_.id.toString == id)
-          .flatMap { req =>
-            val recordId = recordIdFromRef(req.message.from)
-            data.get(recordId).map(req.message.from -> _)
+          .map { req =>
+            val from = req.message.from
+            val recordId = recordIdFromRef(from)
+            from -> data.get(recordId)
           }
           .foreach { v =>
             val (from, data) = v
-            from ! GetStateSuccess(data.state, data.runningRequest)
+            val reply = data.map(v => GetStateSuccess(v.state, v.runningRequest)).getOrElse(GetStateNotFound)
+            from ! reply
           }
 
         nextState(pendingGetRequests.filterNot(_.id.toString == id))
@@ -112,12 +114,7 @@ class RecordLocksStorage extends Actor {
       case ReplicatorMessageWrapper(Replicator.GetFailure(`Key`, Some(id: String))) =>
         pendingGetRequests
           .filter(_.id.toString == id)
-          .collect {
-            case PendingGetRequest(_, x: GetStateRequest) => x
-          }
-          .foreach { r =>
-            r.from ! GetStateFailure(r, "Unable to get record locks state", None)
-          }
+          .foreach(r => r.message.from ! GetStateFailure(r.message, "Unable to get record locks state", None))
 
         nextState(pendingGetRequests.filterNot(_.id.toString == id))
     }
