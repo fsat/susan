@@ -1,5 +1,7 @@
 package id.au.fsat.susan.calvin
 
+import java.util.UUID
+
 import akka.actor.{ ActorSystem, Address }
 import akka.cluster.ClusterEvent.MemberUp
 import akka.cluster.{ Cluster, ClusterEvent, MemberStatus }
@@ -11,7 +13,7 @@ import org.scalatest.{ Matchers, Suite }
 import scala.collection.immutable.Seq
 import scala.concurrent.Await
 import scala.concurrent.duration.Duration
-import scala.util.Try
+import scala.util.{ Random, Try }
 
 object ClusteredTest {
   case class ClusteredSetup(nodes: Seq[(ActorSystem, Cluster)])
@@ -21,8 +23,9 @@ trait ClusteredTest extends Matchers {
   this: Suite =>
 
   def withCluster[T](numberOfNodes: Int = 3, config: Config = createConfig())(callback: ClusteredSetup => T): T = {
+    val uniqueSuffix = Random.nextInt()
     val nodes = (0 until numberOfNodes).map { _ =>
-      val actorSystem = ActorSystem(this.getClass.getSimpleName, createConfig())
+      val actorSystem = ActorSystem(s"${this.getClass.getSimpleName}-$uniqueSuffix", createConfig())
       actorSystem -> Cluster(actorSystem)
     }
 
