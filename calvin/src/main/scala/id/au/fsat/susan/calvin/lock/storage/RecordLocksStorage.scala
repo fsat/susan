@@ -25,8 +25,7 @@ object RecordLocksStorage {
   val Key = ORMapKey[String, StoredValue]("record-locks")
   val InitialValue = ORMap.empty[String, StoredValue]
 
-  def update(key: ActorRef, state: StoredValue): ORMap[String, StoredValue] => ORMap[String, StoredValue] = ???
-  private def update(entityId: String, state: StoredValue): ORMap[String, StoredValue] => ORMap[String, StoredValue] = ???
+  def update(key: String, state: StoredValue): ORMap[String, StoredValue] => ORMap[String, StoredValue] = ???
 
   sealed trait Message
   sealed trait RequestMessage extends Message
