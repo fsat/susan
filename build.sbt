@@ -1,7 +1,7 @@
 import scalariform.formatter.preferences._
 
 lazy val Versions = new {
-  val akka = "2.5.11"
+  val akka = "2.5.13"
   val scalaTest = "3.0.4"
   val scalaVersion = "2.12.4"
 }
@@ -11,6 +11,7 @@ lazy val Libraries = new {
   val akkaTyped               = "com.typesafe.akka" %% "akka-actor-typed"           % Versions.akka
   val akkaStreams             = "com.typesafe.akka" %% "akka-stream"                % Versions.akka
   val akkaClusterSharding     = "com.typesafe.akka" %% "akka-cluster-sharding"      % Versions.akka
+  val akkaDistributedData     = "com.typesafe.akka" %% "akka-distributed-data"      % Versions.akka
   val akkaTestKit             = "com.typesafe.akka" %% "akka-testkit"               % Versions.akka        % "test"
   val scalaTest               = "org.scalatest"     %% "scalatest"                  % Versions.scalaTest   % "test"
 }
@@ -43,6 +44,7 @@ lazy val calvin = project
     libraryDependencies ++= Seq(
       Libraries.akka,
       Libraries.akkaStreams,
+      Libraries.akkaDistributedData,
       Libraries.akkaClusterSharding,
       Libraries.scalaTest,
       Libraries.akkaTestKit
