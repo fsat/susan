@@ -19,4 +19,4 @@ package id.au.fsat.susan.calvin
 /**
  * All messages that can be sent across the wire *MUST* extend this trait
  */
-trait RemoteMessage extends java.io.Serializable // Temporary hack MUST REMOVE!!!
+trait RemoteMessage extends java.io.Serializable // TODO: Temporary hack MUST REMOVE!!!
