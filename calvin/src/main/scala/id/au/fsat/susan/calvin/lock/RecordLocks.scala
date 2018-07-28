@@ -41,12 +41,12 @@ object RecordLocks {
   /**
    * All input messages to [[RecordLocks]] actor must extends this trait.
    */
-  private[calvin] trait RequestMessage extends RemoteMessage
+  private[calvin] sealed trait RequestMessage extends RemoteMessage
 
   /**
    * All response messages from [[RecordLocks]] actor must extends this trait.
    */
-  private[calvin] trait ResponseMessage extends RemoteMessage
+  private[calvin] sealed trait ResponseMessage extends RemoteMessage
 
   /**
    * All self message must extends this trait.
