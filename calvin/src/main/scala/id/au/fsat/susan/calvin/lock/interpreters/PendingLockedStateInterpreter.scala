@@ -5,25 +5,41 @@ import java.time.Instant
 import akka.actor.ActorRef
 import id.au.fsat.susan.calvin.Id
 import id.au.fsat.susan.calvin.lock.RecordLocks
-import id.au.fsat.susan.calvin.lock.RecordLocks.{LockGetRequestDropped, LockGetTimeout, PendingRequest, StateChanged}
+import id.au.fsat.susan.calvin.lock.RecordLocks._
 import id.au.fsat.susan.calvin.lock.interpreters.Interpreters.filterExpired
-import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo.{PendingLockedStateAlgo, Responses}
+import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo.{ PendingLockedStateAlgo, Responses }
 
 import scala.collection.immutable.Seq
+import scala.concurrent.duration.FiniteDuration
 
-case class PendingLockedStateInterpreter(lockedRequest: RecordLocks.RunningRequest,
-                                          recordLocksStorage: ActorRef,
-                                          subscribers: Set[ActorRef] = Set.empty,
-                                          pendingRequests: Seq[PendingRequest] = Seq.empty,
-                                          maxPendingRequests: Int,
-                                          now: () => Instant = Interpreters.now) extends PendingLockedStateAlgo[Id] {
+case class PendingLockedStateInterpreter(
+  lockedRequest: RecordLocks.RunningRequest,
+  recordLocksStorage: ActorRef,
+  subscribers: Set[ActorRef] = Set.empty,
+  pendingRequests: Seq[PendingRequest] = Seq.empty,
+  maxPendingRequests: Int,
+  maxTimeoutObtain: FiniteDuration,
+  maxTimeoutReturn: FiniteDuration,
+
+  now: () => Instant = Interpreters.now) extends PendingLockedStateAlgo[Id] {
   override type Interpreter = PendingLockedStateInterpreter
 
   override def isWaitingForAck(request: RecordLocks.RunningRequest): Boolean = lockedRequest == request
 
   override def markLocked(): (Responses, RecordLocksAlgo.LockedStateAlgo[Id]) = ???
 
-  override def lockRequest(req: RecordLocks.LockGetRequest, sender: ActorRef): (Responses, PendingLockedStateInterpreter) = ???
+  override def lockRequest(req: RecordLocks.LockGetRequest, sender: ActorRef): (Responses, PendingLockedStateInterpreter) =
+    if (req.timeoutObtain > maxTimeoutObtain) {
+      val reply = LockGetFailure(req, new IllegalArgumentException(s"The lock obtain timeout of [${req.timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
+      Seq(sender -> reply) -> this
+
+    } else if (req.timeoutReturn > maxTimeoutReturn) {
+      val reply = LockGetFailure(req, new IllegalArgumentException(s"The lock return timeout of [${req.timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
+      Seq(sender -> reply) -> this
+
+    } else {
+      Seq.empty -> copy(pendingRequests = pendingRequests :+ PendingRequest(sender, req, Instant.now()))
+    }
 
   override def processPendingRequests(): (Responses, PendingLockedStateInterpreter) = {
     val (pendingTimedOut, pendingAliveKept, pendingAliveDropped) = filterExpired(now(), pendingRequests, maxPendingRequests)
