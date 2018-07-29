@@ -1,6 +1,7 @@
-package id.au.fsat.susan.calvin.lock
+package id.au.fsat.susan.calvin.lock.interpreters
 
 import akka.actor.ActorRef
+import id.au.fsat.susan.calvin.lock.RecordLocks
 import id.au.fsat.susan.calvin.lock.RecordLocks.RecordLocksState
 
 object RecordLocksAlgo {
@@ -38,7 +39,7 @@ object RecordLocksAlgo {
 
     import RecordLocks._
 
-    def lockedRequest: LockGetRequest
+    def lockedRequest: RunningRequest
     def isWaitingForAck(request: RunningRequest): Boolean
     def markLocked(): (Responses, LockedStateAlgo[F])
   }
@@ -50,7 +51,7 @@ object RecordLocksAlgo {
 
     import RecordLocks._
 
-    def lockedRequest: LockGetRequest
+    def lockedRequest: RunningRequest
     def isLockedRequestExpired: Boolean
 
     def checkExpiry(): (Responses, Either[LockedStateAlgo[F], PendingLockExpiredStateAlgo[F]])
@@ -62,7 +63,7 @@ object RecordLocksAlgo {
     override type State = PendingLockReturnedState.type
     override val state = PendingLockReturnedState
 
-    def returnedRequest: LockGetRequest
+    def returnedRequest: RunningRequest
     def isWaitingForAck(request: RunningRequest): Boolean
     def lockReturnConfirmed(): (Responses, Either[IdleStateAlgo[F], PendingLockedStateAlgo[F]])
   }
@@ -72,7 +73,7 @@ object RecordLocksAlgo {
     override type State = PendingLockExpiredState.type
     override val state = PendingLockExpiredState
 
-    def expiredRequest: LockGetRequest
+    def expiredRequest: RunningRequest
     def isWaitingForAck(request: RunningRequest): Boolean
     def lockExpiryConfirmed(): (Responses, Either[IdleStateAlgo[F], PendingLockedStateAlgo[F]])
     def lockReturnedLate(request: LockReturnRequest, sender: ActorRef): (Responses, PendingLockExpiredStateAlgo[F])
@@ -87,7 +88,6 @@ trait RecordLocksAlgo[F[_]] {
   import RecordLocks._
   import RecordLocksAlgo.Responses
 
-  def value: F[_]
   def state: State
 
   def subscribe(req: SubscribeRequest, sender: ActorRef): (Responses, Interpreter)

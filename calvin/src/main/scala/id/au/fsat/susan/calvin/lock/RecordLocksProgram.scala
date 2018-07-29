@@ -1,12 +1,12 @@
 package id.au.fsat.susan.calvin.lock
 
 import akka.actor.{ Actor, ActorRef, Terminated }
-import id.au.fsat.susan.calvin.StateTransition
+import id.au.fsat.susan.calvin.{ Id, StateTransition }
 import id.au.fsat.susan.calvin.lock.RecordLocks._
-import id.au.fsat.susan.calvin.lock.RecordLocksAlgo._
+import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo._
 import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
 
-class RecordLocksProgram(interpreter: LoadingStateAlgo[StateTransition]) extends Actor {
+class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor {
 
   private val storage = context.watch(createStorage())
 
@@ -16,7 +16,7 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[StateTransition]) extends
     loading(next)
   }
 
-  private def loading(interpreter: LoadingStateAlgo[StateTransition]): Receive = onRequest {
+  private def loading(interpreter: LoadingStateAlgo[Id]): Receive = onRequest {
     case v: LockGetRequest =>
       val (responses, next) = interpreter.lockRequest(v, sender())
       responses.foreach(send)
@@ -38,12 +38,12 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[StateTransition]) extends
       responses.foreach(send)
 
       next match {
-        case v: LoadingStateAlgo[StateTransition] => loading(v)
-        case v: IdleStateAlgo[StateTransition] => idle(v)
-        case v: PendingLockedStateAlgo[StateTransition] => pendingLocked(v)
-        case v: LockedStateAlgo[StateTransition] => locked(v)
-        case v: PendingLockReturnedStateAlgo[StateTransition] => pendingLockReturned(v)
-        case v: PendingLockExpiredStateAlgo[StateTransition] => pendingLockExpired(v)
+        case v: LoadingStateAlgo[Id]             => loading(v)
+        case v: IdleStateAlgo[Id]                => idle(v)
+        case v: PendingLockedStateAlgo[Id]       => pendingLocked(v)
+        case v: LockedStateAlgo[Id]              => locked(v)
+        case v: PendingLockReturnedStateAlgo[Id] => pendingLockReturned(v)
+        case v: PendingLockExpiredStateAlgo[Id]  => pendingLockExpired(v)
       }
 
     case RecordLocksStorageMessageWrapper(RecordLocksStorage.GetStateFailure(_, message, error)) =>
@@ -52,23 +52,22 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[StateTransition]) extends
       responses.foreach(send)
       loading(next)
 
-    case _: LockReturnRequest                =>
+    case _: LockReturnRequest =>
       // Ignore
       loading(interpreter)
 
-    case LockExpiryCheck                     =>
+    case LockExpiryCheck =>
       // Ignore
       loading(interpreter)
 
-    case ProcessPendingRequests              =>
+    case ProcessPendingRequests =>
       val (responses, next) = interpreter.processPendingRequests()
       responses.foreach(send)
       loading(next)
 
   }
 
-
-  private def idle(interpreter: IdleStateAlgo[StateTransition]): Receive = onRequest {
+  private def idle(interpreter: IdleStateAlgo[Id]): Receive = onRequest {
     case v: LockGetRequest =>
       val (responses, next) = interpreter.lockRequest(v, sender())
       responses.foreach(send)
@@ -86,24 +85,24 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[StateTransition]) extends
       idle(next)
 
     case _: RecordLocksStorageMessageWrapper =>
-    // Ignore
+      // Ignore
       idle(interpreter)
 
-    case _: LockReturnRequest                =>
-    // Ignore
+    case _: LockReturnRequest =>
+      // Ignore
       idle(interpreter)
 
-    case LockExpiryCheck                     =>
-    // Ignore
+    case LockExpiryCheck =>
+      // Ignore
       idle(interpreter)
 
-    case ProcessPendingRequests              =>
-    // Ignore
+    case ProcessPendingRequests =>
+      // Ignore
       idle(interpreter)
 
   }
 
-  private def pendingLocked(interpreter: PendingLockedStateAlgo[StateTransition]): Receive = onRequest {
+  private def pendingLocked(interpreter: PendingLockedStateAlgo[Id]): Receive = onRequest {
     case v: LockGetRequest =>
       val (responses, next) = interpreter.lockRequest(v, sender())
       responses.foreach(send)
@@ -129,7 +128,7 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[StateTransition]) extends
       // Ignore
       pendingLocked(interpreter)
 
-    case LockExpiryCheck      =>
+    case LockExpiryCheck =>
       // Ignore
       pendingLocked(interpreter)
 
@@ -139,7 +138,7 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[StateTransition]) extends
       pendingLocked(next)
   }
 
-  private def locked(interpreter: LockedStateAlgo[StateTransition]): Receive = onRequest {
+  private def locked(interpreter: LockedStateAlgo[Id]): Receive = onRequest {
     case v: LockGetRequest =>
       val (responses, next) = interpreter.lockRequest(v, sender())
       responses.foreach(send)
@@ -166,7 +165,7 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[StateTransition]) extends
 
       pendingLockReturned(next)
 
-    case LockExpiryCheck      =>
+    case LockExpiryCheck =>
       val (responses, next) = interpreter.checkExpiry()
       responses.foreach(send)
       next match {
@@ -184,7 +183,7 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[StateTransition]) extends
       locked(next)
   }
 
-  private def pendingLockReturned(interpreter: PendingLockReturnedStateAlgo[StateTransition]): Receive = onRequest {
+  private def pendingLockReturned(interpreter: PendingLockReturnedStateAlgo[Id]): Receive = onRequest {
     case v: LockGetRequest =>
       val (responses, next) = interpreter.lockRequest(v, sender())
       responses.foreach(send)
@@ -217,7 +216,7 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[StateTransition]) extends
       // Ignore
       pendingLockReturned(interpreter)
 
-    case LockExpiryCheck      =>
+    case LockExpiryCheck =>
       // Ignore
       pendingLockReturned(interpreter)
 
@@ -227,7 +226,7 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[StateTransition]) extends
       pendingLockReturned(next)
   }
 
-  private def pendingLockExpired(interpreter: PendingLockExpiredStateAlgo[StateTransition]): Receive = onRequest {
+  private def pendingLockExpired(interpreter: PendingLockExpiredStateAlgo[Id]): Receive = onRequest {
     case v: LockGetRequest =>
       val (responses, next) = interpreter.lockRequest(v, sender())
       responses.foreach(send)
@@ -261,7 +260,7 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[StateTransition]) extends
       responses.foreach(send)
       pendingLockExpired(next)
 
-    case LockExpiryCheck      =>
+    case LockExpiryCheck =>
       // Ignore
       pendingLockExpired(interpreter)
 
