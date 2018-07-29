@@ -29,7 +29,7 @@ object RecordLocksAlgo {
     override type State = IdleState.type
     override val state = IdleState
 
-    def lockRequest(req: LockGetRequest, sender: ActorRef): (Responses, PendingLockedStateAlgo[F])
+    def lockRequest(req: LockGetRequest, sender: ActorRef): (Responses, Either[IdleStateAlgo[F], PendingLockedStateAlgo[F]])
   }
 
   trait PendingLockedStateAlgo[F[_]] extends RecordLocksAlgoWithPendingRequests[F] {

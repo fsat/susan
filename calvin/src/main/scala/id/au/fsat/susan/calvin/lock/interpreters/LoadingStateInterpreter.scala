@@ -13,6 +13,7 @@ import scala.collection.immutable.Seq
 import scala.concurrent.duration.FiniteDuration
 
 case class LoadingStateInterpreter(
+  self: ActorRef,
   recordLocksStorage: ActorRef,
   subscribers: Set[ActorRef] = Set.empty,
   pendingRequests: Seq[PendingRequest] = Seq.empty,
@@ -38,7 +39,7 @@ case class LoadingStateInterpreter(
       Seq(sender -> reply) -> this
 
     } else {
-      Seq.empty -> copy(pendingRequests = pendingRequests :+ PendingRequest(sender, req, Instant.now()))
+      Seq.empty -> copy(pendingRequests = pendingRequests :+ PendingRequest(sender, req, now()))
     }
 
   override def processPendingRequests(): (Responses, LoadingStateInterpreter) = {
