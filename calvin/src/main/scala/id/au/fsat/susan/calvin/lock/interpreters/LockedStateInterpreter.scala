@@ -8,6 +8,7 @@ import id.au.fsat.susan.calvin.lock.RecordLocks
 import id.au.fsat.susan.calvin.lock.RecordLocks._
 import id.au.fsat.susan.calvin.lock.interpreters.Interpreters.filterExpired
 import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo.{ LockedStateAlgo, Responses }
+import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
 
 import scala.collection.immutable.Seq
 import scala.concurrent.duration.FiniteDuration
@@ -21,14 +22,48 @@ case class LockedStateInterpreter(
   maxPendingRequests: Int,
   maxTimeoutObtain: FiniteDuration,
   maxTimeoutReturn: FiniteDuration,
+  removeStaleLockAfter: FiniteDuration,
   now: () => Instant = Interpreters.now) extends LockedStateAlgo[Id] {
   override type Interpreter = LockedStateInterpreter
 
-  override def isLockedRequestExpired: Boolean = ???
+  override def checkExpiry(): (Responses, Either[LockedStateAlgo[Id], RecordLocksAlgo.PendingLockExpiredStateAlgo[Id]]) = {
+    val currentTime = now()
+    val deadline = lockedRequest.lock.returnDeadline.plusNanos(removeStaleLockAfter.toNanos)
+    val isExpired = currentTime.isAfter(deadline)
 
-  override def checkExpiry(): (Responses, Either[LockedStateAlgo[Id], RecordLocksAlgo.PendingLockExpiredStateAlgo[Id]]) = ???
+    if (isExpired) {
+      val next = PendingLockExpiredStateInterpreter(
+        lockedRequest,
+        self,
+        recordLocksStorage,
+        subscribers,
+        pendingRequests,
+        maxPendingRequests,
+        maxTimeoutObtain,
+        maxTimeoutReturn,
+        removeStaleLockAfter,
+        now)
 
-  override def lockReturnRequest(req: RecordLocks.LockReturnRequest, sender: ActorRef): (Responses, RecordLocksAlgo.PendingLockReturnedStateAlgo[Id]) = ???
+      Seq(
+        recordLocksStorage -> RecordLocksStorage.UpdateStateRequest(from = self, next.state, Some(lockedRequest))) -> Right(next)
+    } else
+      Seq.empty -> Left(this)
+  }
+
+  override def lockReturn(): (Responses, RecordLocksAlgo.PendingLockReturnedStateAlgo[Id]) = {
+    Seq(
+      recordLocksStorage -> RecordLocksStorage.UpdateStateRequest(from = self, PendingLockReturnedState, Some(lockedRequest))) -> PendingLockReturnedStateInterpreter(
+        lockedRequest,
+        self,
+        recordLocksStorage,
+        subscribers,
+        pendingRequests,
+        maxPendingRequests,
+        maxTimeoutObtain,
+        maxTimeoutReturn,
+        removeStaleLockAfter,
+        now)
+  }
 
   override def lockRequest(req: RecordLocks.LockGetRequest, sender: ActorRef): (Responses, LockedStateInterpreter) =
     if (req.timeoutObtain > maxTimeoutObtain) {

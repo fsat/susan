@@ -7,7 +7,8 @@ import id.au.fsat.susan.calvin.lock.RecordLocks.RecordLocksState
 object RecordLocksAlgo {
   import RecordLocks._
 
-  type Responses = Seq[(ActorRef, ResponseMessage)]
+  // TODO: do we need to tighten the `Any`?
+  type Responses = Seq[(ActorRef, Any)]
 
   trait RecordLocksAlgoWithPendingRequests[F[_]] extends RecordLocksAlgo[F] {
     def lockRequest(req: LockGetRequest, sender: ActorRef): (Responses, Interpreter)
@@ -40,7 +41,6 @@ object RecordLocksAlgo {
     import RecordLocks._
 
     def lockedRequest: RunningRequest
-    def isWaitingForAck(request: RunningRequest): Boolean
     def markLocked(): (Responses, LockedStateAlgo[F])
   }
 
@@ -52,10 +52,8 @@ object RecordLocksAlgo {
     import RecordLocks._
 
     def lockedRequest: RunningRequest
-    def isLockedRequestExpired: Boolean
-
     def checkExpiry(): (Responses, Either[LockedStateAlgo[F], PendingLockExpiredStateAlgo[F]])
-    def lockReturnRequest(req: LockReturnRequest, sender: ActorRef): (Responses, PendingLockReturnedStateAlgo[F])
+    def lockReturn(): (Responses, PendingLockReturnedStateAlgo[F])
   }
 
   trait PendingLockReturnedStateAlgo[F[_]] extends RecordLocksAlgoWithPendingRequests[F] {
@@ -64,7 +62,6 @@ object RecordLocksAlgo {
     override val state = PendingLockReturnedState
 
     def returnedRequest: RunningRequest
-    def isWaitingForAck(request: RunningRequest): Boolean
     def lockReturnConfirmed(): (Responses, Either[IdleStateAlgo[F], PendingLockedStateAlgo[F]])
   }
 
@@ -74,7 +71,6 @@ object RecordLocksAlgo {
     override val state = PendingLockExpiredState
 
     def expiredRequest: RunningRequest
-    def isWaitingForAck(request: RunningRequest): Boolean
     def lockExpiryConfirmed(): (Responses, Either[IdleStateAlgo[F], PendingLockedStateAlgo[F]])
     def lockReturnedLate(request: LockReturnRequest, sender: ActorRef): (Responses, PendingLockExpiredStateAlgo[F])
   }

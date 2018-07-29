@@ -20,6 +20,7 @@ case class LoadingStateInterpreter(
   maxPendingRequests: Int,
   maxTimeoutObtain: FiniteDuration,
   maxTimeoutReturn: FiniteDuration,
+  removeStaleLockAfter: FiniteDuration,
   now: () => Instant = Interpreters.now) extends LoadingStateAlgo[Id] {
   override type Interpreter = LoadingStateInterpreter
 

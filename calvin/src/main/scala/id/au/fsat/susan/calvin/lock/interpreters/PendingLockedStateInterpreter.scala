@@ -21,25 +21,23 @@ case class PendingLockedStateInterpreter(
   maxPendingRequests: Int,
   maxTimeoutObtain: FiniteDuration,
   maxTimeoutReturn: FiniteDuration,
-
+  removeStaleLockAfter: FiniteDuration,
   now: () => Instant = Interpreters.now) extends PendingLockedStateAlgo[Id] {
   override type Interpreter = PendingLockedStateInterpreter
 
-  override def isWaitingForAck(request: RecordLocks.RunningRequest): Boolean = lockedRequest == request
-
   override def markLocked(): (Responses, RecordLocksAlgo.LockedStateAlgo[Id]) = {
     Seq(
-      lockedRequest.caller -> LockGetSuccess(lockedRequest.lock)
-    ) -> LockedStateInterpreter(
-      lockedRequest,
-      self,
-      recordLocksStorage,
-      subscribers,
-      pendingRequests,
-      maxPendingRequests,
-      maxTimeoutObtain,
-      maxTimeoutReturn
-    )
+      lockedRequest.caller -> LockGetSuccess(lockedRequest.lock)) -> LockedStateInterpreter(
+        lockedRequest,
+        self,
+        recordLocksStorage,
+        subscribers,
+        pendingRequests,
+        maxPendingRequests,
+        maxTimeoutObtain,
+        maxTimeoutReturn,
+        removeStaleLockAfter,
+        now)
   }
 
   override def lockRequest(req: RecordLocks.LockGetRequest, sender: ActorRef): (Responses, PendingLockedStateInterpreter) =

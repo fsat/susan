@@ -1,12 +1,12 @@
 package id.au.fsat.susan.calvin.lock
 
-import akka.actor.{ Actor, ActorRef, Terminated }
-import id.au.fsat.susan.calvin.{ Id, StateTransition }
+import akka.actor.{ Actor, ActorLogging, ActorRef, Terminated }
+import id.au.fsat.susan.calvin.{ Id }
 import id.au.fsat.susan.calvin.lock.RecordLocks._
 import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo._
 import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
 
-class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor {
+class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor with ActorLogging {
 
   private val storage = context.watch(createStorage())
 
@@ -52,6 +52,10 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor {
       responses.foreach(send)
       loading(next)
 
+    case v: RecordLocksStorageMessageWrapper =>
+      log.warning(s"Unexpected message [$v] from [${sender()}]")
+      loading(interpreter)
+
     case _: LockReturnRequest =>
       // Ignore
       loading(interpreter)
@@ -71,8 +75,13 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor {
     case v: LockGetRequest =>
       val (responses, next) = interpreter.lockRequest(v, sender())
       responses.foreach(send)
-      next.notifySubscribers().foreach(send)
-      pendingLocked(next)
+      next match {
+        case Left(v) => idle(v)
+
+        case Right(v) =>
+          v.notifySubscribers().foreach(send)
+          pendingLocked(v)
+      }
 
     case v: SubscribeRequest =>
       val (responses, next) = interpreter.subscribe(v, sender())
@@ -118,11 +127,15 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor {
       responses.foreach(send)
       pendingLocked(next)
 
-    case RecordLocksStorageMessageWrapper(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest))) if interpreter.isWaitingForAck(runningRequest) =>
+    case RecordLocksStorageMessageWrapper(RecordLocksStorage.UpdateStateSuccess(LockedState, Some(runningRequest))) if interpreter.lockedRequest == runningRequest =>
       val (responses, next) = interpreter.markLocked()
       responses.foreach(send)
       next.notifySubscribers().foreach(send)
       locked(next)
+
+    case v: RecordLocksStorageMessageWrapper =>
+      log.warning(s"Received unexpected message [$v] from [${sender()}]")
+      pendingLocked(interpreter)
 
     case _: LockReturnRequest =>
       // Ignore
@@ -154,16 +167,20 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor {
       responses.foreach(send)
       locked(next)
 
-    case _: RecordLocksStorageMessageWrapper =>
-      // Ignore
+    case v: RecordLocksStorageMessageWrapper =>
+      log.warning(s"Received unexpected message [$v] from [${sender()}]")
       locked(interpreter)
 
-    case v: LockReturnRequest =>
-      val (responses, next) = interpreter.lockReturnRequest(v, sender())
+    case v: LockReturnRequest if v.lock == interpreter.lockedRequest.lock =>
+      val (responses, next) = interpreter.lockReturn()
       responses.foreach(send)
       next.notifySubscribers().foreach(send)
 
       pendingLockReturned(next)
+
+    case v: LockReturnRequest =>
+      log.warning(s"Received unexpected message [$v] from [${sender()}]")
+      locked(interpreter)
 
     case LockExpiryCheck =>
       val (responses, next) = interpreter.checkExpiry()
@@ -199,7 +216,7 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor {
       responses.foreach(send)
       pendingLockReturned(next)
 
-    case RecordLocksStorageMessageWrapper(RecordLocksStorage.UpdateStateSuccess(PendingLockReturnedState, Some(runningRequest))) if interpreter.isWaitingForAck(runningRequest) =>
+    case RecordLocksStorageMessageWrapper(RecordLocksStorage.UpdateStateSuccess(PendingLockReturnedState, Some(runningRequest))) if interpreter.returnedRequest == runningRequest =>
       val (responses, next) = interpreter.lockReturnConfirmed()
       responses.foreach(send)
       next match {
@@ -211,6 +228,10 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor {
           v.notifySubscribers().foreach(send)
           pendingLocked(v)
       }
+
+    case v: RecordLocksStorageMessageWrapper =>
+      log.warning(s"Unexpected message [$v] from [${sender()}]")
+      pendingLockReturned(interpreter)
 
     case _: LockReturnRequest =>
       // Ignore
@@ -242,7 +263,7 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor {
       responses.foreach(send)
       pendingLockExpired(next)
 
-    case RecordLocksStorageMessageWrapper(RecordLocksStorage.UpdateStateSuccess(PendingLockExpiredState, Some(runningRequest))) if interpreter.isWaitingForAck(runningRequest) =>
+    case RecordLocksStorageMessageWrapper(RecordLocksStorage.UpdateStateSuccess(PendingLockExpiredState, Some(runningRequest))) if interpreter.expiredRequest == runningRequest =>
       val (responses, next) = interpreter.lockExpiryConfirmed()
       responses.foreach(send)
       next match {
@@ -255,10 +276,18 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor {
           pendingLocked(v)
       }
 
-    case v: LockReturnRequest =>
+    case v: RecordLocksStorageMessageWrapper =>
+      log.warning(s"Unexpected message [$v] from [${sender()}]")
+      pendingLockExpired(interpreter)
+
+    case v: LockReturnRequest if interpreter.expiredRequest.lock == v.lock =>
       val (responses, next) = interpreter.lockReturnedLate(v, sender())
       responses.foreach(send)
       pendingLockExpired(next)
+
+    case v: LockReturnRequest =>
+      log.warning(s"Unexpected message [$v] from [${sender()}]")
+      pendingLockExpired(interpreter)
 
     case LockExpiryCheck =>
       // Ignore

@@ -7,7 +7,7 @@ import akka.actor.ActorRef
 import id.au.fsat.susan.calvin.Id
 import id.au.fsat.susan.calvin.lock.RecordLocks
 import id.au.fsat.susan.calvin.lock.RecordLocks._
-import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo.{IdleStateAlgo, Responses}
+import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo.{ IdleStateAlgo, Responses }
 import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
 
 import scala.collection.immutable.Seq
@@ -21,17 +21,18 @@ case class IdleStateInterpreter(
   maxPendingRequests: Int,
   maxTimeoutObtain: FiniteDuration,
   maxTimeoutReturn: FiniteDuration,
+  removeStaleLockAfter: FiniteDuration,
   now: () => Instant = Interpreters.now) extends IdleStateAlgo[Id] {
   override type Interpreter = IdleStateInterpreter
 
   override def lockRequest(req: RecordLocks.LockGetRequest, sender: ActorRef): (Responses, Either[IdleStateAlgo[Id], RecordLocksAlgo.PendingLockedStateAlgo[Id]]) =
     if (req.timeoutObtain > maxTimeoutObtain) {
       val reply = LockGetFailure(req, new IllegalArgumentException(s"The lock obtain timeout of [${req.timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
-      Seq(sender -> reply) -> Left(this)
+      Seq(sender -> reply) -> Left(copy())
 
     } else if (req.timeoutReturn > maxTimeoutReturn) {
       val reply = LockGetFailure(req, new IllegalArgumentException(s"The lock return timeout of [${req.timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
-      Seq(sender -> reply) -> Left(this)
+      Seq(sender -> reply) -> Left(copy())
 
     } else {
       val currentTime = now()
@@ -39,18 +40,17 @@ case class IdleStateInterpreter(
       val runningRequest = RunningRequest(sender, req, currentTime, lock)
 
       Seq(
-        recordLocksStorage -> RecordLocksStorage.UpdateStateRequest(from = self, state, Some(runningRequest))
-      ) -> Right(PendingLockedStateInterpreter(
-        lockedRequest = runningRequest,
-        self,
-        recordLocksStorage,
-        subscribers,
-        pendingRequests,
-        maxPendingRequests,
-        maxTimeoutObtain,
-        maxTimeoutReturn,
-        now
-      ))
+        recordLocksStorage -> RecordLocksStorage.UpdateStateRequest(from = self, LockedState, Some(runningRequest))) -> Right(PendingLockedStateInterpreter(
+          lockedRequest = runningRequest,
+          self,
+          recordLocksStorage,
+          subscribers,
+          pendingRequests,
+          maxPendingRequests,
+          maxTimeoutObtain,
+          maxTimeoutReturn,
+          removeStaleLockAfter,
+          now))
     }
 
   override def subscribe(req: RecordLocks.SubscribeRequest, sender: ActorRef): (Responses, IdleStateInterpreter) = {
@@ -69,6 +69,5 @@ case class IdleStateInterpreter(
     val message = StateChanged(state, None, pendingRequests)
     subscribers.map(_ -> message).toSeq
   }
-
 
 }

@@ -21,11 +21,9 @@ case class PendingLockExpiredStateInterpreter(
   maxPendingRequests: Int,
   maxTimeoutObtain: FiniteDuration,
   maxTimeoutReturn: FiniteDuration,
-
+  removeStaleLockAfter: FiniteDuration,
   now: () => Instant = Interpreters.now) extends PendingLockExpiredStateAlgo[Id] {
   override type Interpreter = PendingLockExpiredStateInterpreter
-
-  override def isWaitingForAck(request: RecordLocks.RunningRequest): Boolean = expiredRequest == request
 
   override def lockExpiryConfirmed(): (Responses, Either[RecordLocksAlgo.IdleStateAlgo[Id], RecordLocksAlgo.PendingLockedStateAlgo[Id]]) = ???
 
