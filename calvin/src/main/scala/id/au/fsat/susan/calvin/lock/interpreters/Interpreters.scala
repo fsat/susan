@@ -3,10 +3,12 @@ package id.au.fsat.susan.calvin.lock.interpreters
 import java.time.Instant
 
 import id.au.fsat.susan.calvin.lock.RecordLocks.PendingRequest
+import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo.Responses
 
 import scala.collection.immutable.Seq
 
 object Interpreters {
+  val EmptyResponse: Responses = Seq.empty
 
   def now(): Instant = Instant.now()
 

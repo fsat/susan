@@ -11,8 +11,8 @@ object RecordLocksAlgo {
   type Responses = Seq[(ActorRef, Any)]
 
   trait RecordLocksAlgoWithPendingRequests[F[_]] extends RecordLocksAlgo[F] {
-    def lockRequest(req: LockGetRequest, sender: ActorRef): (Responses, Interpreter)
-    def processPendingRequests(): (Responses, Interpreter)
+    def lockRequest(req: LockGetRequest, sender: ActorRef): (F[Responses], Interpreter)
+    def processPendingRequests(): (F[Responses], Interpreter)
   }
 
   trait LoadingStateAlgo[F[_]] extends RecordLocksAlgoWithPendingRequests[F] {
@@ -21,8 +21,8 @@ object RecordLocksAlgo {
     override val state = LoadingState
 
     def load(): (Responses, LoadingStateAlgo[F])
-    def loaded(state: RecordLocksState, request: Option[RunningRequest]): (Responses, RecordLocksAlgo[F])
-    def loadFailure(message: String, error: Option[Throwable]): (Responses, LoadingStateAlgo[F])
+    def loaded(state: RecordLocksState, request: Option[RunningRequest]): (F[Responses], RecordLocksAlgo[F])
+    def loadFailure(message: String, error: Option[Throwable]): (F[Responses], LoadingStateAlgo[F])
   }
 
   trait IdleStateAlgo[F[_]] extends RecordLocksAlgo[F] {
@@ -30,7 +30,7 @@ object RecordLocksAlgo {
     override type State = IdleState.type
     override val state = IdleState
 
-    def lockRequest(req: LockGetRequest, sender: ActorRef): (Responses, Either[IdleStateAlgo[F], PendingLockedStateAlgo[F]])
+    def lockRequest(req: LockGetRequest, sender: ActorRef): (F[Responses], Either[IdleStateAlgo[F], PendingLockedStateAlgo[F]])
   }
 
   trait PendingLockedStateAlgo[F[_]] extends RecordLocksAlgoWithPendingRequests[F] {
@@ -41,7 +41,7 @@ object RecordLocksAlgo {
     import RecordLocks._
 
     def lockedRequest: RunningRequest
-    def markLocked(): (Responses, LockedStateAlgo[F])
+    def markLocked(): (F[Responses], LockedStateAlgo[F])
   }
 
   trait LockedStateAlgo[F[_]] extends RecordLocksAlgoWithPendingRequests[F] {
@@ -52,8 +52,8 @@ object RecordLocksAlgo {
     import RecordLocks._
 
     def lockedRequest: RunningRequest
-    def checkExpiry(): (Responses, Either[LockedStateAlgo[F], PendingLockExpiredStateAlgo[F]])
-    def lockReturn(): (Responses, PendingLockReturnedStateAlgo[F])
+    def checkExpiry(): (F[Responses], Either[LockedStateAlgo[F], PendingLockExpiredStateAlgo[F]])
+    def lockReturn(): (F[Responses], PendingLockReturnedStateAlgo[F])
   }
 
   trait PendingLockReturnedStateAlgo[F[_]] extends RecordLocksAlgoWithPendingRequests[F] {
@@ -62,7 +62,7 @@ object RecordLocksAlgo {
     override val state = PendingLockReturnedState
 
     def returnedRequest: RunningRequest
-    def lockReturnConfirmed(): (Responses, Either[IdleStateAlgo[F], PendingLockedStateAlgo[F]])
+    def lockReturnConfirmed(): (F[Responses], Either[IdleStateAlgo[F], PendingLockedStateAlgo[F]])
   }
 
   trait PendingLockExpiredStateAlgo[F[_]] extends RecordLocksAlgoWithPendingRequests[F] {
@@ -71,8 +71,8 @@ object RecordLocksAlgo {
     override val state = PendingLockExpiredState
 
     def expiredRequest: RunningRequest
-    def lockExpiryConfirmed(): (Responses, Either[IdleStateAlgo[F], PendingLockedStateAlgo[F]])
-    def lockReturnedLate(request: LockReturnRequest, sender: ActorRef): (Responses, PendingLockExpiredStateAlgo[F])
+    def lockExpiryConfirmed(): (F[Responses], Either[IdleStateAlgo[F], PendingLockedStateAlgo[F]])
+    def lockReturnedLate(request: LockReturnRequest, sender: ActorRef): (F[Responses], PendingLockExpiredStateAlgo[F])
   }
 
 }
@@ -84,10 +84,10 @@ trait RecordLocksAlgo[F[_]] {
   import RecordLocks._
   import RecordLocksAlgo.Responses
 
-  def state: State
+  def state: F[State]
 
-  def subscribe(req: SubscribeRequest, sender: ActorRef): (Responses, Interpreter)
-  def unsubscribe(req: UnsubscribeRequest, sender: ActorRef): (Responses, Interpreter)
-  def notifySubscribers(): Responses
+  def subscribe(req: SubscribeRequest, sender: ActorRef): (F[Responses], Interpreter)
+  def unsubscribe(req: UnsubscribeRequest, sender: ActorRef): (F[Responses], Interpreter)
+  def notifySubscribers(): F[Responses]
 }
 
