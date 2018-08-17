@@ -26,7 +26,7 @@ case class LockedStateInterpreter(
   now: () => Instant = Interpreters.now) extends LockedStateAlgo[Id] {
   override type Interpreter = LockedStateInterpreter
 
-  override def checkExpiry(): (Responses, Either[LockedStateAlgo[Id], RecordLocksAlgo.PendingLockExpiredStateAlgo[Id]]) = {
+  override def checkExpiry(): (Id[Responses], Either[LockedStateAlgo[Id], RecordLocksAlgo.PendingLockExpiredStateAlgo[Id]]) = {
     val currentTime = now()
     val deadline = lockedRequest.lock.returnDeadline.plusNanos(removeStaleLockAfter.toNanos)
     val isExpired = currentTime.isAfter(deadline)
@@ -44,15 +44,16 @@ case class LockedStateInterpreter(
         removeStaleLockAfter,
         now)
 
-      Seq(
-        recordLocksStorage -> RecordLocksStorage.UpdateStateRequest(from = self, next.state, Some(lockedRequest))) -> Right(next)
+      Id(Seq(
+        recordLocksStorage -> RecordLocksStorage.UpdateStateRequest(from = self, next.state, Some(lockedRequest)))) -> Right(next)
     } else
-      Seq.empty -> Left(this)
+      Id(Seq.empty) -> Left(this)
   }
 
-  override def lockReturn(): (Responses, RecordLocksAlgo.PendingLockReturnedStateAlgo[Id]) = {
-    Seq(
-      recordLocksStorage -> RecordLocksStorage.UpdateStateRequest(from = self, PendingLockReturnedState, Some(lockedRequest))) -> PendingLockReturnedStateInterpreter(
+  override def lockReturn(): (Id[Responses], RecordLocksAlgo.PendingLockReturnedStateAlgo[Id]) = {
+    Id(Seq(
+      recordLocksStorage -> RecordLocksStorage.UpdateStateRequest(from = self, PendingLockReturnedState, Some(lockedRequest)))) ->
+      PendingLockReturnedStateInterpreter(
         lockedRequest,
         self,
         recordLocksStorage,
@@ -65,20 +66,20 @@ case class LockedStateInterpreter(
         now)
   }
 
-  override def lockRequest(req: RecordLocks.LockGetRequest, sender: ActorRef): (Responses, LockedStateInterpreter) =
+  override def lockRequest(req: RecordLocks.LockGetRequest, sender: ActorRef): (Id[Responses], LockedStateInterpreter) =
     if (req.timeoutObtain > maxTimeoutObtain) {
       val reply = LockGetFailure(req, new IllegalArgumentException(s"The lock obtain timeout of [${req.timeoutObtain.toMillis} ms] is larger than allowable [${maxTimeoutObtain.toMillis} ms]"))
-      Seq(sender -> reply) -> this
+      Id(Seq(sender -> reply)) -> this
 
     } else if (req.timeoutReturn > maxTimeoutReturn) {
       val reply = LockGetFailure(req, new IllegalArgumentException(s"The lock return timeout of [${req.timeoutReturn.toMillis} ms] is larger than allowable [${maxTimeoutReturn.toMillis} ms]"))
-      Seq(sender -> reply) -> this
+      Id(Seq(sender -> reply)) -> this
 
     } else {
-      Seq.empty -> copy(pendingRequests = pendingRequests :+ PendingRequest(sender, req, now()))
+      Id(Seq.empty) -> copy(pendingRequests = pendingRequests :+ PendingRequest(sender, req, now()))
     }
 
-  override def processPendingRequests(): (Responses, LockedStateInterpreter) = {
+  override def processPendingRequests(): (Id[Responses], LockedStateInterpreter) = {
     val (pendingTimedOut, pendingAliveKept, pendingAliveDropped) = filterExpired(now(), pendingRequests, maxPendingRequests)
 
     val responses: Responses =
@@ -87,23 +88,23 @@ case class LockedStateInterpreter(
 
     val next = copy(pendingRequests = pendingAliveKept)
 
-    responses -> next
+    Id(responses) -> next
   }
 
-  override def subscribe(req: RecordLocks.SubscribeRequest, sender: ActorRef): (Responses, LockedStateInterpreter) = {
+  override def subscribe(req: RecordLocks.SubscribeRequest, sender: ActorRef): (Id[Responses], LockedStateInterpreter) = {
     val response = Seq(sender -> RecordLocks.SubscribeSuccess)
     val next = copy(subscribers = subscribers + req.ref)
-    response -> next
+    Id(response) -> next
   }
 
-  override def unsubscribe(req: RecordLocks.UnsubscribeRequest, sender: ActorRef): (Responses, LockedStateInterpreter) = {
+  override def unsubscribe(req: RecordLocks.UnsubscribeRequest, sender: ActorRef): (Id[Responses], LockedStateInterpreter) = {
     val response = Seq(sender -> RecordLocks.UnsubscribeSuccess)
     val next = copy(subscribers = subscribers.filterNot(_ == req.ref))
-    response -> next
+    Id(response) -> next
   }
 
-  override def notifySubscribers(): Responses = {
+  override def notifySubscribers(): Id[Responses] = {
     val message = StateChanged(state, None, pendingRequests)
-    subscribers.map(_ -> message).toSeq
+    Id(subscribers.map(_ -> message).toSeq)
   }
 }

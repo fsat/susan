@@ -1,6 +1,6 @@
 package id.au.fsat.susan.calvin.lock
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Terminated}
+import akka.actor.{ Actor, ActorLogging, ActorRef, Terminated }
 import id.au.fsat.susan.calvin.Id
 import id.au.fsat.susan.calvin.lock.RecordLocks._
 import id.au.fsat.susan.calvin.lock.interpreters.Interpreters
@@ -13,7 +13,7 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor with A
 
   override def receive: Receive = {
     val (responses, next) = interpreter.load()
-    responses.foreach(send)
+    responses.map(_.foreach(send))
     loading(next)
   }
 
@@ -100,13 +100,13 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor with A
       for {
         r <- responses
         s <- next match {
-          case Left(_) => Id(Interpreters.EmptyResponse)
+          case Left(_)  => Id(Interpreters.EmptyResponse)
           case Right(v) => v.notifySubscribers()
         }
       } yield {
         (r ++ s).foreach(send)
         next match {
-          case Left(k) => idle(k)
+          case Left(k)  => idle(k)
           case Right(k) => pendingLocked(k)
         }
       }
@@ -249,7 +249,6 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor with A
         pendingLockReturned(next)
       }
 
-
     case v: LockReturnRequest =>
       log.warning(s"Received unexpected message [$v] from [${sender()}]")
       Id(locked(interpreter))
@@ -259,14 +258,14 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor with A
       for {
         r <- responses
         s <- next match {
-          case Left(_) => Id(Interpreters.EmptyResponse)
+          case Left(_)  => Id(Interpreters.EmptyResponse)
           case Right(v) => v.notifySubscribers()
         }
       } yield {
         (r ++ s).foreach(send)
         next match {
           case Left(unexpired) => locked(unexpired)
-          case Right(expired) => pendingLockExpired(expired)
+          case Right(expired)  => pendingLockExpired(expired)
         }
       }
 
@@ -316,11 +315,10 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor with A
       } yield {
         (r ++ s).foreach(send)
         next match {
-          case Left(v) => idle(v)
+          case Left(v)  => idle(v)
           case Right(v) => pendingLocked(v)
         }
       }
-
 
     case v: RecordLocksStorageMessageWrapper =>
       log.warning(s"Unexpected message [$v] from [${sender()}]")
@@ -380,11 +378,10 @@ class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor with A
       } yield {
         (r ++ s).foreach(send)
         next match {
-          case Left(v) => idle(v)
+          case Left(v)  => idle(v)
           case Right(v) => pendingLocked(v)
         }
       }
-
 
     case v: RecordLocksStorageMessageWrapper =>
       log.warning(s"Unexpected message [$v] from [${sender()}]")

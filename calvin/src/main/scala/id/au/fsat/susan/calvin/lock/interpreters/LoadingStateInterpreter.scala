@@ -7,7 +7,8 @@ import id.au.fsat.susan.calvin.Id
 import id.au.fsat.susan.calvin.lock.RecordLocks
 import id.au.fsat.susan.calvin.lock.RecordLocks._
 import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo.{ LoadingStateAlgo, Responses }
-import id.au.fsat.susan.calvin.lock.interpreters.Interpreters.filterExpired
+import id.au.fsat.susan.calvin.lock.interpreters.Interpreters.{ filterExpired, EmptyResponse }
+import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
 
 import scala.collection.immutable.Seq
 import scala.concurrent.duration.FiniteDuration
@@ -24,11 +25,103 @@ case class LoadingStateInterpreter(
   now: () => Instant = Interpreters.now) extends LoadingStateAlgo[Id] {
   override type Interpreter = LoadingStateInterpreter
 
-  override def load(): (Id[Responses], LoadingStateAlgo[Id]) = ???
+  override def load(): (Id[Responses], LoadingStateAlgo[Id]) =
+    Id(Seq(
+      recordLocksStorage -> RecordLocksStorage.GetStateRequest(self))) -> this
 
-  override def loaded(state: RecordLocks.RecordLocksState, request: Option[RecordLocks.RunningRequest]): (Id[Responses], RecordLocksAlgo[Id]) = ???
+  override def loaded(state: RecordLocks.RecordLocksState, runningRequest: Option[RecordLocks.RunningRequest]): (Id[Responses], RecordLocksAlgo[Id]) = {
+    def idleOrNextPending(persistIdleState: Boolean): (Id[Responses], RecordLocksAlgo[Id]) = {
+      if (pendingRequests.isEmpty) {
+        val responses = if (persistIdleState) {
+          Seq(recordLocksStorage -> RecordLocksStorage.UpdateStateRequest(from = self, IdleState, None))
+        } else
+          EmptyResponse
 
-  override def loadFailure(message: String, error: Option[Throwable]): (Id[Responses], LoadingStateAlgo[Id]) = ???
+        Id(responses) -> IdleStateInterpreter(
+          self,
+          recordLocksStorage,
+          subscribers,
+          pendingRequests,
+          maxPendingRequests,
+          maxTimeoutObtain,
+          maxTimeoutReturn,
+          removeStaleLockAfter,
+          now)
+      } else {
+        val interpreter = IdleStateInterpreter(
+          self,
+          recordLocksStorage,
+          subscribers,
+          pendingRequests.tail,
+          maxPendingRequests,
+          maxTimeoutObtain,
+          maxTimeoutReturn,
+          removeStaleLockAfter,
+          now)
+
+        val (interpreterResponses, next) = interpreter.lockRequest(pendingRequests.head.request, pendingRequests.head.caller)
+        val subscriberResponses = interpreter.notifySubscribers()
+        val responses =
+          for {
+            r <- interpreterResponses
+            s <- subscriberResponses
+          } yield r ++ s
+
+        responses -> next.merge
+      }
+    }
+
+    def withRunningRequest(f: RunningRequest => (Id[Responses], RecordLocksAlgo[Id])): (Id[Responses], RecordLocksAlgo[Id]) =
+      runningRequest match {
+        case Some(r) => f(r)
+        case None    => idleOrNextPending(persistIdleState = true)
+      }
+
+    state match {
+      case IdleState => idleOrNextPending(persistIdleState = false)
+
+      case LockedState =>
+        withRunningRequest { req =>
+          Id(Seq.empty) -> LockedStateInterpreter(
+            req,
+            self,
+            recordLocksStorage,
+            subscribers,
+            pendingRequests,
+            maxPendingRequests,
+            maxTimeoutObtain,
+            maxTimeoutReturn,
+            removeStaleLockAfter,
+            now)
+        }
+
+      case PendingLockExpiredState =>
+        withRunningRequest { req =>
+          val pendingResponses = Seq(req.caller -> LockExpired(req.lock)) ++
+            subscribers.map(_ -> StateChanged(PendingLockExpiredState, Some(req), pendingRequests))
+
+          val (r, next) = idleOrNextPending(persistIdleState = true)
+          r.map(v => pendingResponses ++ v) -> next
+        }
+
+      case PendingLockReturnedState =>
+        withRunningRequest { req =>
+          val isLate = now().isAfter(req.lock.returnDeadline)
+          val lockReturnedResponse = if (isLate) LockReturnLate(req.lock) else LockReturnSuccess(req.lock)
+
+          val pendingResponses = Seq(req.caller -> lockReturnedResponse) ++
+            subscribers.map(_ -> StateChanged(PendingLockReturnedState, Some(req), pendingRequests))
+
+          val (r, next) = idleOrNextPending(persistIdleState = true)
+          r.map(v => pendingResponses ++ v) -> next
+        }
+
+    }
+  }
+
+  override def loadFailure(message: String, error: Option[Throwable]): (Id[Responses], LoadingStateAlgo[Id]) =
+    Id(Seq(
+      recordLocksStorage -> RecordLocksStorage.GetStateRequest(self))) -> this
 
   override def lockRequest(req: RecordLocks.LockGetRequest, sender: ActorRef): (Id[Responses], LoadingStateInterpreter) =
     if (req.timeoutObtain > maxTimeoutObtain) {
@@ -58,7 +151,7 @@ case class LoadingStateInterpreter(
   override def subscribe(req: RecordLocks.SubscribeRequest, sender: ActorRef): (Id[Responses], LoadingStateInterpreter) = {
     val response = Seq(sender -> RecordLocks.SubscribeSuccess)
     val next = copy(subscribers = subscribers + req.ref)
-    response -> next
+    Id(response) -> next
   }
 
   override def unsubscribe(req: RecordLocks.UnsubscribeRequest, sender: ActorRef): (Id[Responses], LoadingStateInterpreter) = {

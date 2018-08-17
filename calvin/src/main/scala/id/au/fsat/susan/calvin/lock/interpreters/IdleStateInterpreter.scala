@@ -7,7 +7,7 @@ import akka.actor.ActorRef
 import id.au.fsat.susan.calvin.Id
 import id.au.fsat.susan.calvin.lock.RecordLocks
 import id.au.fsat.susan.calvin.lock.RecordLocks._
-import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo.{IdleStateAlgo, PendingLockedStateAlgo, Responses}
+import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo.{ IdleStateAlgo, PendingLockedStateAlgo, Responses }
 import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
 
 import scala.collection.immutable.Seq
@@ -43,16 +43,16 @@ case class IdleStateInterpreter(
         recordLocksStorage -> RecordLocksStorage.UpdateStateRequest(from = self, LockedState, Some(runningRequest)))
 
       Id(responses) -> Right(PendingLockedStateInterpreter(
-          lockedRequest = runningRequest,
-          self,
-          recordLocksStorage,
-          subscribers,
-          pendingRequests,
-          maxPendingRequests,
-          maxTimeoutObtain,
-          maxTimeoutReturn,
-          removeStaleLockAfter,
-          now))
+        lockedRequest = runningRequest,
+        self,
+        recordLocksStorage,
+        subscribers,
+        pendingRequests,
+        maxPendingRequests,
+        maxTimeoutObtain,
+        maxTimeoutReturn,
+        removeStaleLockAfter,
+        now))
     }
 
   override def subscribe(req: RecordLocks.SubscribeRequest, sender: ActorRef): (Id[Responses], IdleStateInterpreter) = {

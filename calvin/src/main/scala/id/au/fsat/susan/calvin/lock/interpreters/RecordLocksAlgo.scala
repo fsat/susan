@@ -20,7 +20,7 @@ object RecordLocksAlgo {
     override type State = LoadingState.type
     override val state = LoadingState
 
-    def load(): (Responses, LoadingStateAlgo[F])
+    def load(): (F[Responses], LoadingStateAlgo[F])
     def loaded(state: RecordLocksState, request: Option[RunningRequest]): (F[Responses], RecordLocksAlgo[F])
     def loadFailure(message: String, error: Option[Throwable]): (F[Responses], LoadingStateAlgo[F])
   }
@@ -84,7 +84,7 @@ trait RecordLocksAlgo[F[_]] {
   import RecordLocks._
   import RecordLocksAlgo.Responses
 
-  def state: F[State]
+  def state: State
 
   def subscribe(req: SubscribeRequest, sender: ActorRef): (F[Responses], Interpreter)
   def unsubscribe(req: UnsubscribeRequest, sender: ActorRef): (F[Responses], Interpreter)
