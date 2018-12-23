@@ -41,7 +41,6 @@ object LockStateAlgebra {
   final case class RequestId(value: UUID)
   final case class Lock(requestId: RequestId, recordId: RecordId, lockId: UUID, createdAt: Instant, returnDeadline: Instant)
   final case class RunningRequest(caller: ActorRef, request: LockGetRequest, createdAt: Instant, lock: Lock)
-  final case class PendingRequest(caller: ActorRef, request: LockGetRequest, createdAt: Instant)
 
   object Messages {
     final case class LockGetRequest(requestId: RequestId, recordId: RecordId, timeoutObtain: FiniteDuration, timeoutReturn: FiniteDuration) extends RequestMessage
