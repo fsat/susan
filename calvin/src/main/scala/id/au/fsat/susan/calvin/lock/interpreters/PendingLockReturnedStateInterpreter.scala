@@ -1,6 +1,7 @@
 package id.au.fsat.susan.calvin.lock.interpreters
 
 import java.time.Instant
+import java.util.UUID
 
 import akka.actor.ActorRef
 import id.au.fsat.susan.calvin.Id
@@ -8,6 +9,7 @@ import id.au.fsat.susan.calvin.lock.RecordLocks
 import id.au.fsat.susan.calvin.lock.RecordLocks._
 import id.au.fsat.susan.calvin.lock.interpreters.Interpreters.filterExpired
 import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo.{ PendingLockReturnedStateAlgo, Responses }
+import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
 
 import scala.collection.immutable.Seq
 import scala.concurrent.duration.FiniteDuration
@@ -22,10 +24,55 @@ case class PendingLockReturnedStateInterpreter(
   maxTimeoutObtain: FiniteDuration,
   maxTimeoutReturn: FiniteDuration,
   removeStaleLockAfter: FiniteDuration,
-  now: () => Instant = Interpreters.now) extends PendingLockReturnedStateAlgo[Id] {
+  now: () => Instant = Interpreters.now,
+  generateLockId: () => UUID = UUID.randomUUID) extends PendingLockReturnedStateAlgo[Id] {
   override type Interpreter = PendingLockReturnedStateInterpreter
 
-  override def lockReturnConfirmed(): (Id[Responses], Either[RecordLocksAlgo.IdleStateAlgo[Id], RecordLocksAlgo.PendingLockedStateAlgo[Id]]) = ???
+  override def lockReturnConfirmed(): (Id[Responses], Either[RecordLocksAlgo.IdleStateAlgo[Id], RecordLocksAlgo.PendingLockedStateAlgo[Id]]) = {
+    val isLate = now().isAfter(returnedRequest.lock.returnDeadline)
+    val reply = if (isLate) LockReturnLate(returnedRequest.lock) else LockReturnSuccess(returnedRequest.lock)
+
+    val callerReply = Seq(returnedRequest.caller -> reply)
+
+    pendingRequests.headOption match {
+      case Some(v) =>
+        val currentTime = now()
+        val req = v.request
+        val sender = v.caller
+        val lock = Lock(req.requestId, req.recordId, generateLockId(), createdAt = currentTime, returnDeadline = currentTime.plusNanos(req.timeoutReturn.toNanos))
+        val runningRequest = RunningRequest(sender, req, currentTime, lock)
+
+        val persistStateReply = Seq(
+          recordLocksStorage -> RecordLocksStorage.UpdateStateRequest(from = self, LockedState, Some(runningRequest)))
+
+        Id(callerReply ++ persistStateReply) -> Right(PendingLockedStateInterpreter(
+          lockedRequest = runningRequest,
+          self,
+          recordLocksStorage,
+          subscribers,
+          pendingRequests.tail,
+          maxPendingRequests,
+          maxTimeoutObtain,
+          maxTimeoutReturn,
+          removeStaleLockAfter,
+          now))
+
+      case None =>
+        val persistStateReply = Seq(
+          recordLocksStorage -> RecordLocksStorage.UpdateStateRequest(from = self, IdleState, None))
+
+        Id(persistStateReply) -> Left(IdleStateInterpreter(
+          self,
+          recordLocksStorage,
+          subscribers,
+          maxPendingRequests,
+          maxTimeoutObtain,
+          maxTimeoutReturn,
+          removeStaleLockAfter,
+          now,
+          generateLockId))
+    }
+  }
 
   override def lockRequest(req: RecordLocks.LockGetRequest, sender: ActorRef): (Id[Responses], PendingLockReturnedStateInterpreter) =
     if (req.timeoutObtain > maxTimeoutObtain) {

@@ -17,12 +17,15 @@ case class IdleStateInterpreter(
   self: ActorRef,
   recordLocksStorage: ActorRef,
   subscribers: Set[ActorRef] = Set.empty,
-  pendingRequests: Seq[PendingRequest] = Seq.empty,
   maxPendingRequests: Int,
   maxTimeoutObtain: FiniteDuration,
   maxTimeoutReturn: FiniteDuration,
   removeStaleLockAfter: FiniteDuration,
-  now: () => Instant = Interpreters.now) extends IdleStateAlgo[Id] {
+  now: () => Instant = Interpreters.now,
+  generateLockId: () => UUID = UUID.randomUUID) extends IdleStateAlgo[Id] {
+
+  val pendingRequests: Seq[PendingRequest] = Seq.empty
+
   override type Interpreter = IdleStateInterpreter
 
   override def lockRequest(req: RecordLocks.LockGetRequest, sender: ActorRef): (Id[Responses], Either[IdleStateAlgo[Id], PendingLockedStateAlgo[Id]]) =
@@ -36,7 +39,7 @@ case class IdleStateInterpreter(
 
     } else {
       val currentTime = now()
-      val lock = Lock(req.requestId, req.recordId, UUID.randomUUID(), createdAt = currentTime, returnDeadline = currentTime.plusNanos(req.timeoutReturn.toNanos))
+      val lock = Lock(req.requestId, req.recordId, generateLockId(), createdAt = currentTime, returnDeadline = currentTime.plusNanos(req.timeoutReturn.toNanos))
       val runningRequest = RunningRequest(sender, req, currentTime, lock)
 
       val responses = Seq(
