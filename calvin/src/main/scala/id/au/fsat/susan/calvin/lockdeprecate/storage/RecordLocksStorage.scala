@@ -6,7 +6,8 @@ import akka.actor.{ Actor, ActorRef, Props, Terminated }
 import akka.cluster.Cluster
 import akka.cluster.ddata.Replicator.ReadAll
 import akka.cluster.ddata._
-import id.au.fsat.susan.calvin.{ RecordId, RemoteMessage, StateTransition }
+import id.au.fsat.susan.calvin.lock.messages.RemoteMessage
+import id.au.fsat.susan.calvin.{ RecordId, StateTransition }
 import id.au.fsat.susan.calvin.lockdeprecate.RecordLocks._
 
 import scala.collection.immutable.Seq

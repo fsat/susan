@@ -20,9 +20,10 @@ import java.time.Instant
 import java.util.UUID
 
 import akka.actor.{ Actor, ActorLogging, ActorRef, Cancellable, Props, Terminated }
+import id.au.fsat.susan.calvin.lock.messages.RemoteMessage
 import id.au.fsat.susan.calvin.lockdeprecate.storage.RecordLocksStorage
 import id.au.fsat.susan.calvin.lockdeprecate.storage.RecordLocksStorage.UpdateStateSuccess
-import id.au.fsat.susan.calvin.{ RecordId, RemoteMessage, StateTransition }
+import id.au.fsat.susan.calvin.{ RecordId, StateTransition }
 
 import scala.collection.immutable.Seq
 import scala.concurrent.duration._

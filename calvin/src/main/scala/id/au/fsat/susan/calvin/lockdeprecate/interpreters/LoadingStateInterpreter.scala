@@ -37,37 +37,39 @@ case class LoadingStateInterpreter(
         } else
           EmptyResponse
 
-        Id(responses) -> IdleStateInterpreter(
-          self,
-          recordLocksStorage,
-          subscribers,
-          pendingRequests,
-          maxPendingRequests,
-          maxTimeoutObtain,
-          maxTimeoutReturn,
-          removeStaleLockAfter,
-          now)
+        //        Id(responses) -> IdleStateInterpreter(
+        //          self,
+        //          recordLocksStorage,
+        //          subscribers,
+        //          pendingRequests,
+        //          maxPendingRequests,
+        //          maxTimeoutObtain,
+        //          maxTimeoutReturn,
+        //          removeStaleLockAfter,
+        //          now)
+        ???
       } else {
-        val interpreter = IdleStateInterpreter(
-          self,
-          recordLocksStorage,
-          subscribers,
-          pendingRequests.tail,
-          maxPendingRequests,
-          maxTimeoutObtain,
-          maxTimeoutReturn,
-          removeStaleLockAfter,
-          now)
-
-        val (interpreterResponses, next) = interpreter.lockRequest(pendingRequests.head.request, pendingRequests.head.caller)
-        val subscriberResponses = interpreter.notifySubscribers()
-        val responses =
-          for {
-            r <- interpreterResponses
-            s <- subscriberResponses
-          } yield r ++ s
-
-        responses -> next.merge
+        //        val interpreter = IdleStateInterpreter(
+        //          self,
+        //          recordLocksStorage,
+        //          subscribers,
+        //          pendingRequests.tail,
+        //          maxPendingRequests,
+        //          maxTimeoutObtain,
+        //          maxTimeoutReturn,
+        //          removeStaleLockAfter,
+        //          now)
+        //
+        //        val (interpreterResponses, next) = interpreter.lockRequest(pendingRequests.head.request, pendingRequests.head.caller)
+        //        val subscriberResponses = interpreter.notifySubscribers()
+        //        val responses =
+        //          for {
+        //            r <- interpreterResponses
+        //            s <- subscriberResponses
+        //          } yield r ++ s
+        //
+        //        responses -> next.merge
+        ???
       }
     }
 

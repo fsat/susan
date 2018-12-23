@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package id.au.fsat.susan.calvin
+package id.au.fsat.susan.calvin.lock.messages
 
 /**
  * All messages that can be sent across the wire *MUST* extend this trait
