@@ -1,7 +1,7 @@
-package id.au.fsat.susan.calvin.lock
+package id.au.fsat.susan.calvin.lockdeprecate
 
 import akka.actor.{ ActorContext, ActorRef }
-import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
+import id.au.fsat.susan.calvin.lockdeprecate.storage.RecordLocksStorage
 
 import scala.concurrent.duration.FiniteDuration
 

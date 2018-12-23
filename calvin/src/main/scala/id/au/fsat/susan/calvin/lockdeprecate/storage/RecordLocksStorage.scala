@@ -1,4 +1,4 @@
-package id.au.fsat.susan.calvin.lock.storage
+package id.au.fsat.susan.calvin.lockdeprecate.storage
 
 import java.util.UUID
 
@@ -7,7 +7,7 @@ import akka.cluster.Cluster
 import akka.cluster.ddata.Replicator.ReadAll
 import akka.cluster.ddata._
 import id.au.fsat.susan.calvin.{ RecordId, RemoteMessage, StateTransition }
-import id.au.fsat.susan.calvin.lock.RecordLocks._
+import id.au.fsat.susan.calvin.lockdeprecate.RecordLocks._
 
 import scala.collection.immutable.Seq
 import scala.concurrent.duration._

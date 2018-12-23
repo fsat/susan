@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-package id.au.fsat.susan.calvin.lock
+package id.au.fsat.susan.calvin.lockdeprecate
 
 import java.time.Instant
 import java.util.UUID
 
 import akka.actor.{ Actor, ActorLogging, ActorRef, Cancellable, Props, Terminated }
-import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
-import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage.UpdateStateSuccess
+import id.au.fsat.susan.calvin.lockdeprecate.storage.RecordLocksStorage
+import id.au.fsat.susan.calvin.lockdeprecate.storage.RecordLocksStorage.UpdateStateSuccess
 import id.au.fsat.susan.calvin.{ RecordId, RemoteMessage, StateTransition }
 
 import scala.collection.immutable.Seq

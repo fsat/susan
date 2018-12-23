@@ -1,4 +1,4 @@
-package id.au.fsat.susan.calvin.lock.storage
+package id.au.fsat.susan.calvin.lockdeprecate.storage
 
 import akka.cluster.ddata.{ DistributedData, Replicator }
 import akka.testkit.TestProbe

@@ -1,4 +1,4 @@
-package id.au.fsat.susan.calvin.lock
+package id.au.fsat.susan.calvin.lockdeprecate
 
 import java.util.UUID
 
@@ -6,8 +6,8 @@ import akka.cluster.MemberStatus
 import akka.testkit.TestProbe
 import id.au.fsat.susan.calvin.{ ClusteredTest, RecordId }
 import id.au.fsat.susan.calvin.ClusteredTest.ClusteredSetup
-import id.au.fsat.susan.calvin.lock.RecordLocks._
-import id.au.fsat.susan.calvin.lock.cluster._
+import id.au.fsat.susan.calvin.lockdeprecate.RecordLocks._
+import id.au.fsat.susan.calvin.lockdeprecate.cluster._
 import org.scalatest.{ FunSpec, Inside }
 
 import scala.concurrent.Await

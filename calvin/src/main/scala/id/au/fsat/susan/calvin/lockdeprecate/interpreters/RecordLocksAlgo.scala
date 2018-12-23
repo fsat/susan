@@ -1,8 +1,8 @@
-package id.au.fsat.susan.calvin.lock.interpreters
+package id.au.fsat.susan.calvin.lockdeprecate.interpreters
 
 import akka.actor.ActorRef
-import id.au.fsat.susan.calvin.lock.RecordLocks
-import id.au.fsat.susan.calvin.lock.RecordLocks.RecordLocksState
+import id.au.fsat.susan.calvin.lockdeprecate.RecordLocks
+import id.au.fsat.susan.calvin.lockdeprecate.RecordLocks.RecordLocksState
 
 object RecordLocksAlgo {
   import RecordLocks._

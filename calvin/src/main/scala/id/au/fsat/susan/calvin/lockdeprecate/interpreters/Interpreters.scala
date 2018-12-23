@@ -1,9 +1,9 @@
-package id.au.fsat.susan.calvin.lock.interpreters
+package id.au.fsat.susan.calvin.lockdeprecate.interpreters
 
 import java.time.Instant
 
-import id.au.fsat.susan.calvin.lock.RecordLocks.PendingRequest
-import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo.Responses
+import id.au.fsat.susan.calvin.lockdeprecate.RecordLocks.PendingRequest
+import id.au.fsat.susan.calvin.lockdeprecate.interpreters.RecordLocksAlgo.Responses
 
 import scala.collection.immutable.Seq
 

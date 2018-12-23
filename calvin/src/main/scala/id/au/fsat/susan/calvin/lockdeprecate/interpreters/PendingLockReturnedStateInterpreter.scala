@@ -1,15 +1,15 @@
-package id.au.fsat.susan.calvin.lock.interpreters
+package id.au.fsat.susan.calvin.lockdeprecate.interpreters
 
 import java.time.Instant
 import java.util.UUID
 
 import akka.actor.ActorRef
 import id.au.fsat.susan.calvin.Id
-import id.au.fsat.susan.calvin.lock.RecordLocks
-import id.au.fsat.susan.calvin.lock.RecordLocks._
-import id.au.fsat.susan.calvin.lock.interpreters.Interpreters.filterExpired
-import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo.{ PendingLockReturnedStateAlgo, Responses }
-import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
+import id.au.fsat.susan.calvin.lockdeprecate.RecordLocks
+import id.au.fsat.susan.calvin.lockdeprecate.RecordLocks._
+import id.au.fsat.susan.calvin.lockdeprecate.interpreters.Interpreters.filterExpired
+import id.au.fsat.susan.calvin.lockdeprecate.interpreters.RecordLocksAlgo.{ PendingLockReturnedStateAlgo, Responses }
+import id.au.fsat.susan.calvin.lockdeprecate.storage.RecordLocksStorage
 
 import scala.collection.immutable.Seq
 import scala.concurrent.duration.FiniteDuration

@@ -1,8 +1,8 @@
-package id.au.fsat.susan.calvin.lock.cluster
+package id.au.fsat.susan.calvin.lockdeprecate.cluster
 
 import akka.actor.{ ActorRef, ActorSystem, Props }
 import akka.cluster.sharding.{ ClusterSharding, ClusterShardingSettings, ShardRegion }
-import id.au.fsat.susan.calvin.lock.{ RecordLockSettings, RecordLocks }
+import id.au.fsat.susan.calvin.lockdeprecate.{ RecordLockSettings, RecordLocks }
 
 object RecordLocksClusterSharding {
   val name = "transaction-locks-cluster-sharding"

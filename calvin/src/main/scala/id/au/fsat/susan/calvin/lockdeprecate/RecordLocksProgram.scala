@@ -1,11 +1,11 @@
-package id.au.fsat.susan.calvin.lock
+package id.au.fsat.susan.calvin.lockdeprecate
 
 import akka.actor.{ Actor, ActorLogging, ActorRef, Terminated }
 import id.au.fsat.susan.calvin.Id
-import id.au.fsat.susan.calvin.lock.RecordLocks._
-import id.au.fsat.susan.calvin.lock.interpreters.Interpreters
-import id.au.fsat.susan.calvin.lock.interpreters.RecordLocksAlgo._
-import id.au.fsat.susan.calvin.lock.storage.RecordLocksStorage
+import id.au.fsat.susan.calvin.lockdeprecate.RecordLocks._
+import id.au.fsat.susan.calvin.lockdeprecate.interpreters.Interpreters
+import id.au.fsat.susan.calvin.lockdeprecate.interpreters.RecordLocksAlgo._
+import id.au.fsat.susan.calvin.lockdeprecate.storage.RecordLocksStorage
 
 class RecordLocksProgram(interpreter: LoadingStateAlgo[Id]) extends Actor with ActorLogging {
 
