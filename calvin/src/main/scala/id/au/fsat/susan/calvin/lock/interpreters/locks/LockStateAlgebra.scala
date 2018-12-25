@@ -19,8 +19,8 @@ object LockStateAlgebra {
     sealed trait IdleState extends InitializedRecordLockState
     case object IdleState extends IdleState
 
-    sealed trait PendingLockObtainedState extends InitializedRecordLockState
-    case object PendingLockObtainedState extends PendingLockObtainedState
+    sealed trait PendingLockedState extends InitializedRecordLockState
+    case object PendingLockedState extends PendingLockedState
 
     sealed trait LockedState extends InitializedRecordLockState
     case object LockedState extends LockedState
@@ -49,6 +49,7 @@ object LockStateAlgebra {
     case class LockGetRequestEnqueued() extends LockGetResponse
     case class LockGetRequestSuccess() extends LockGetResponse
     case class LockGetRequestDropped() extends LockGetResponse
+    case class LockGetRequestFailure() extends LockGetResponse
   }
 }
 

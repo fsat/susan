@@ -2,6 +2,7 @@ package id.au.fsat.susan.calvin.lock.interpreters.subscribers
 
 import akka.actor.ActorRef
 import id.au.fsat.susan.calvin.lock.interpreters.locks.LockStateAlgebra._
+import id.au.fsat.susan.calvin.lock.interpreters.requests.PendingRequestAlgebra.PendingRequest
 import id.au.fsat.susan.calvin.lock.interpreters.subscribers.SubscriberAlgebra.Messages._
 import id.au.fsat.susan.calvin.lock.messages.ResponseMessage.{ Response, Responses }
 import id.au.fsat.susan.calvin.lock.messages.{ RemoteMessage, RequestMessage, ResponseMessage }
