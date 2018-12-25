@@ -28,9 +28,9 @@ trait SubscriberAlgebra[F[_]] {
   def previousState: RecordLocksState
   def currentState: RecordLocksState
 
-  def subscribe(message: SubscribeRequest, runningRequest: Option[RunningRequest],
+  def subscribe(request: SubscribeRequest, runningRequest: Option[RunningRequest],
     pendingRequests: Seq[PendingRequest]): (F[Response[StateChanged]], SubscriberAlgebra[F])
-  def unsubscribe(message: SubscribeRequest): (F[Response[UnsubscribeSuccess]], SubscriberAlgebra[F])
+  def unsubscribe(request: UnsubscribeRequest): (F[Response[UnsubscribeSuccess]], SubscriberAlgebra[F])
   def stateChange(nextState: RecordLocksState, runningRequest: Option[RunningRequest],
     pendingRequests: Seq[PendingRequest]): (F[Responses[StateChanged]], SubscriberAlgebra[F])
 }

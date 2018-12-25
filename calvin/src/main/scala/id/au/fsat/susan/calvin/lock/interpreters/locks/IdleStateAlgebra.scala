@@ -1,6 +1,6 @@
 package id.au.fsat.susan.calvin.lock.interpreters.locks
 
-import id.au.fsat.susan.calvin.lock.interpreters.locks.LockStateAlgebra.Messages.{LockGetRequest, LockGetRequestEnqueued, LockGetRequestInvalid}
+import id.au.fsat.susan.calvin.lock.interpreters.locks.LockStateAlgebra.Messages.{ LockGetRequest, LockGetRequestEnqueued, LockGetRequestInvalid }
 import id.au.fsat.susan.calvin.lock.interpreters.locks.LockStateAlgebra.RecordLocksState.IdleState
 import id.au.fsat.susan.calvin.lock.messages.RequestMessage.Request
 import id.au.fsat.susan.calvin.lock.messages.ResponseMessage.Response
