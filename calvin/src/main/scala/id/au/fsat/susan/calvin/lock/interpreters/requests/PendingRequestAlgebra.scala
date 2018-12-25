@@ -15,7 +15,7 @@ object PendingRequestAlgebra {
 }
 
 trait PendingRequestAlgebra[F[_]] {
-  def pendingRequest: Seq[PendingRequest]
+  def pendingRequests: Seq[PendingRequest]
   def nextPendingRequest: Option[PendingRequest]
   def handleRequest(request: Request[LockGetRequest]): (F[ResponseEither[LockGetRequestInvalid, LockGetRequestEnqueued]], PendingRequestAlgebra[F])
   def expireStaleRequests(): (F[Responses[LockGetRequestDropped]], PendingRequestAlgebra[F])
