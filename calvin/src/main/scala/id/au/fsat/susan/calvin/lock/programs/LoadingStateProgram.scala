@@ -11,12 +11,12 @@ import id.au.fsat.susan.calvin.lock.messages.ResponseMessage.Responses
 
 object LoadingStateProgram {
 
-  def start(alg: LoadingStateAlgebra[Id])(implicit s: CommonStates): (Id[Responses[_]], Program) = {
+  def start(alg: LoadingStateAlgebra[Id])(implicit s: CommonStates): (Id[Responses[_]], Program[Id]) = {
     val (response, next) = alg.load()
     response.map(Seq(_)) -> loading(next)
   }
 
-  private def loading(alg: LoadingStateAlgebra[Id])(implicit s: CommonStates): Program = Program {
+  private def loading(alg: LoadingStateAlgebra[Id])(implicit s: CommonStates): Program[Id] = Program {
     case (_, v: GetStateNotFound) =>
       val next = alg.loadedNoPriorState(s.pendingRequestAlgebra.pendingRequests)
 
