@@ -5,5 +5,5 @@ import id.au.fsat.susan.calvin.lock.interpreters.locks.PendingLockReturnedAlgebr
 import id.au.fsat.susan.calvin.lock.programs.Program
 
 object PendingLockReturnedStateProgram {
-  private[programs] def pendingLockReturned(alg: PendingLockReturnedAlgebra[Id]): Program[Id] = ???
+  private[programs] def pendingLockReturned(alg: PendingLockReturnedAlgebra[Id])(implicit s: CommonStates): Program[Id] = ???
 }

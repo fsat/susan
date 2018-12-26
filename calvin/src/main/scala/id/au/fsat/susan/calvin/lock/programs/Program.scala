@@ -11,4 +11,4 @@ object Program {
   type Sender = ActorRef
 }
 
-case class Program[F[_]](pf: PartialFunction[(Sender, RequestMessage), (F[Responses[_]], Program[F])])
+case class Program[F[_]](pf: Function[(Sender, RequestMessage), (F[Responses[_]], Program[F])])

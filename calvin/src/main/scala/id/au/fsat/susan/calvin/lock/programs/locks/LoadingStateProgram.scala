@@ -1,9 +1,9 @@
 package id.au.fsat.susan.calvin.lock.programs.locks
 
 import id.au.fsat.susan.calvin.Id
-import id.au.fsat.susan.calvin.lock.interpreters.locks.LoadingStateAlgebra
+import id.au.fsat.susan.calvin.lock.interpreters.locks._
+import id.au.fsat.susan.calvin.lock.interpreters.locks.LoadingStateAlgebra.Messages._
 import id.au.fsat.susan.calvin.lock.interpreters.locks.LockStateAlgebra.Messages.LockGetRequest
-import id.au.fsat.susan.calvin.lock.interpreters.storage.LockStorageAlgebra.Messages._
 import id.au.fsat.susan.calvin.lock.interpreters.subscribers.SubscriberAlgebra
 import id.au.fsat.susan.calvin.lock.messages.ResponseMessage.Responses
 import id.au.fsat.susan.calvin.lock.programs.Program
@@ -18,20 +18,26 @@ object LoadingStateProgram {
   }
 
   private[programs] def loading(alg: LoadingStateAlgebra[Id], delay: FiniteDuration, attempt: Int)(implicit s: CommonStates): Program[Id] = Program[Id] {
-    case (_, _: GetStateSuccess) =>
-      ???
+    case (sender, v: LoadedState) =>
+      val next = alg.loaded(sender -> v, s.pendingRequestAlgebra.pendingRequests)
+      val (responses, nextSubscriber) =
+        s.subscriberAlgebra.stateChange(next.currentState, runningRequest = None, s.pendingRequestAlgebra.pendingRequests)
 
-    case (_, _: GetStateNotFound) =>
-      val next = alg.loadedNoPriorState(s.pendingRequestAlgebra.pendingRequests)
-        .left.map(IdleStateProgram.idle)
-        .right.map(PendingLockedStateProgram.pendingLocked)
-        .merge
+      val commonStatesNext = s.copy(subscriberAlgebra = nextSubscriber)
 
-      Id(Seq.empty) -> next
+      val nextProgram =
+        next match {
+          case a: IdleStateAlgebra[Id] @unchecked           => IdleStateProgram.idle(a)(commonStatesNext)
+          case a: LockedStateAlgebra[Id] @unchecked         => LockedStateProgram.locked(a)(commonStatesNext)
+          case a: PendingLockExpiredAlgebra[Id] @unchecked  => PendingLockExpiredStateProgram.pendingLockExpired(a)(commonStatesNext)
+          case a: PendingLockReturnedAlgebra[Id] @unchecked => PendingLockReturnedStateProgram.pendingLockReturned(a)(commonStatesNext)
+        }
 
-    case (_, v: GetStateFailure) =>
+      responses -> nextProgram
+
+    case (_, v: LoadFailure) =>
       val nextAttempt = attempt + 1
-      val (response, next) = alg.retry(delay, nextAttempt)
+      val (response, next) = alg.retry(v, delay, nextAttempt)
       response.map(Seq(_)) -> loading(next, delay, nextAttempt)
 
     case (sender, v: LockGetRequest) =>
