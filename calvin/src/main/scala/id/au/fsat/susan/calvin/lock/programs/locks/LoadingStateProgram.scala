@@ -1,4 +1,4 @@
-package id.au.fsat.susan.calvin.lock.programs
+package id.au.fsat.susan.calvin.lock.programs.locks
 
 import id.au.fsat.susan.calvin.Id
 import id.au.fsat.susan.calvin.lock.interpreters.locks.LoadingStateAlgebra
@@ -6,6 +6,7 @@ import id.au.fsat.susan.calvin.lock.interpreters.locks.LockStateAlgebra.Messages
 import id.au.fsat.susan.calvin.lock.interpreters.storage.LockStorageAlgebra.Messages._
 import id.au.fsat.susan.calvin.lock.interpreters.subscribers.SubscriberAlgebra
 import id.au.fsat.susan.calvin.lock.messages.ResponseMessage.Responses
+import id.au.fsat.susan.calvin.lock.programs.Program
 
 import scala.concurrent.duration._
 
@@ -16,7 +17,7 @@ object LoadingStateProgram {
     response.map(Seq(_)) -> loading(next, delay, attempt)
   }
 
-  private def loading(alg: LoadingStateAlgebra[Id], delay: FiniteDuration, attempt: Int)(implicit s: CommonStates): Program[Id] = Program[Id] {
+  private[programs] def loading(alg: LoadingStateAlgebra[Id], delay: FiniteDuration, attempt: Int)(implicit s: CommonStates): Program[Id] = Program[Id] {
     case (_, _: GetStateSuccess) =>
       ???
 
